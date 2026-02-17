@@ -41,6 +41,13 @@ Or use the canonical launcher:
 curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/install.sh | bash
 ```
 
+If you still hit stale cached versions, use this cache-busting command:
+
+```bash
+COMMIT_SHA="$(curl -fsSL -H \"Accept: application/vnd.github+json\" -H \"User-Agent: keynote-bootstrap-installer\" https://api.github.com/repos/gmcgrath86/5760_2160_keynote/commits/main | perl -ne 'if ( /\"sha\":\"([0-9a-f]{40})\"/ ) { print $1; exit }')"
+curl -fsSL \"https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/${COMMIT_SHA}/scripts/bootstrap.sh\" | bash
+```
+
 Both are equivalent. They now install all dependencies automatically, including:
 
 - Hammerspoon via Homebrew when available
