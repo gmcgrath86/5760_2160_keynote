@@ -28,13 +28,11 @@ From this folder:
 ./scripts/bootstrap.sh
 ```
 
-If you are deploying from a freshly created Git repo, use this remote command:
+If you are deploying to another Mac, use this one-shot command directly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<ORG>/<REPO>/main/keynote-hammerspoon-controller/scripts/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/keynote-hammerspoon-controller/scripts/bootstrap.sh | bash
 ```
-
-Replace `<ORG>` and `<REPO>` with your GitHub repo path.
 
 ## Operator quick start
 
