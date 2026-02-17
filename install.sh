@@ -13,8 +13,7 @@ if command -v curl >/dev/null 2>&1; then
       -H "Accept: application/vnd.github+json" \
       -H "User-Agent: keynote-bootstrap-installer" \
       "$COMMITS_API" \
-      | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' \
-      | head -n 1
+      | perl -ne 'if (/"sha":"([0-9a-f]{40})"/) { print $1; exit }'
   )" || true
 fi
 
