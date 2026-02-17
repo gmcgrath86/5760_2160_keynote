@@ -5,32 +5,13 @@ RAW_BASE_URL="https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/mai
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-SCRIPT_NAME="${BASH_SOURCE[0]-}"
-SCRIPT_DIR=""
-if [ -n "${SCRIPT_NAME}" ] && [ -f "$SCRIPT_NAME" ]; then
-  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")" && pwd)"
-fi
-
-if [ -z "$SCRIPT_DIR" ] && [ -n "${0-}" ] && [ "$0" != "-" ] && [ -f "$0" ]; then
-  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-fi
-
-PROJECT_DIR=""
-INIT_FILE=""
-if [ -n "$SCRIPT_DIR" ]; then
-  PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-  INIT_FILE="$PROJECT_DIR/init.lua"
-fi
-
-if [ -n "$INIT_FILE" ] && [ -f "$INIT_FILE" ]; then
-  :
-elif command -v curl >/dev/null 2>&1; then
-  INIT_FILE="$TMP_DIR/init.lua"
-  curl -fsSL "$RAW_BASE_URL/init.lua" -o "$INIT_FILE"
-else
-  echo "Could not locate init.lua and curl is not available."
+if ! command -v curl >/dev/null 2>&1; then
+  echo "curl is required and was not found."
   exit 1
 fi
+
+INIT_FILE="$TMP_DIR/init.lua"
+curl -fsSL "$RAW_BASE_URL/init.lua" -o "$INIT_FILE"
 
 if [ ! -f "$INIT_FILE" ]; then
   echo "Missing init.lua file."
