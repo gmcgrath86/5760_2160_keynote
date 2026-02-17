@@ -101,8 +101,8 @@ install_by_github_release() {
   local zip_file="${TMP_DIR}/hammerspoon.zip"
   local extract_dir="${TMP_DIR}/hammerspoon"
   local app_path
-  local release_page
-  local html_asset
+  local release_tag
+  local release_link
 
   if ! curl -fsSL \
     -H "Accept: application/vnd.github+json" \
@@ -120,23 +120,19 @@ install_by_github_release() {
   fi
 
   if [ -z "$asset_url" ]; then
-    log "Falling back to scraping latest release page for asset URL."
-    release_page="${TMP_DIR}/latest_release.html"
+    log "Falling back to release tag + canonical asset URL."
+    release_link="$(curl -Ls -o /dev/null -w '%{url_effective}' https://github.com/Hammerspoon/hammerspoon/releases/latest)"
+    release_tag="${release_link##*/}"
 
-    if ! curl -fsSL \
-      -H "User-Agent: keynote-bootstrap" \
-      "https://github.com/Hammerspoon/hammerspoon/releases/latest" \
-      -o "$release_page"; then
-      log "Could not query GitHub releases page."
-      return 1
-    fi
-
-    html_asset="$( \
-      grep -Eo 'Hammerspoon/Hammerspoon/releases/download/[^\" ]+Hammerspoon-[^\" ]+\\.zip' "$release_page" | head -n1
-    )"
-
-    if [ -n "$html_asset" ]; then
-      asset_url="https://github.com/$html_asset"
+    if [ -n "$release_tag" ]; then
+      for candidate in \
+        "https://github.com/Hammerspoon/hammerspoon/releases/download/$release_tag/Hammerspoon-$release_tag.zip" \
+        "https://github.com/Hammerspoon/hammerspoon/releases/download/$release_tag/Hammerspoon.zip"; do
+        if curl -fsSLI -o /dev/null "$candidate"; then
+          asset_url="$candidate"
+          break
+        fi
+      done
     fi
   fi
 
