@@ -107,7 +107,12 @@ install_by_github_release() {
     return 1
   fi
 
-  asset_url="$(grep -Eo 'https://github.com/Hammerspoon/hammerspoon/releases/download/[^\" ]+Hammerspoon-[^\" ]+\\.zip' "$release_json" | head -n1)"
+  asset_url="$( \
+    grep '"browser_download_url"' "$release_json" | \
+    grep -o 'https://[^"]*' | \
+    grep -E 'Hammerspoon-.*\.zip' | \
+    head -n1
+  )"
   if [ -z "$asset_url" ]; then
     log "Could not locate Hammerspoon zip asset in release metadata."
     return 1
