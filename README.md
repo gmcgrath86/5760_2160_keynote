@@ -31,7 +31,7 @@ From this folder:
 If you are deploying to another Mac, use this one-shot command directly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/scripts/bootstrap.sh | bash
 ```
 
 You can also run the script directly from this repository folder:
