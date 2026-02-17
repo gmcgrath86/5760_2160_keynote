@@ -1,16 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-INIT_FILE="$PROJECT_DIR/init.lua"
-HAMMERSPOON_APP="/Applications/Hammerspoon.app"
-TARGET_DIR="$HOME/.hammerspoon"
+RAW_BASE_URL="https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main"
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
 
-if [ ! -f "$INIT_FILE" ]; then
-  echo "Missing init.lua at $INIT_FILE"
+SCRIPT_NAME="${BASH_SOURCE[0]-}"
+SCRIPT_DIR=""
+if [ -n "${SCRIPT_NAME}" ] && [ -f "$SCRIPT_NAME" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")" && pwd)"
+fi
+
+if [ -z "$SCRIPT_DIR" ] && [ -n "${0-}" ] && [ "$0" != "-" ] && [ -f "$0" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+fi
+
+PROJECT_DIR=""
+INIT_FILE=""
+if [ -n "$SCRIPT_DIR" ]; then
+  PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+  INIT_FILE="$PROJECT_DIR/init.lua"
+fi
+
+if [ -n "$INIT_FILE" ] && [ -f "$INIT_FILE" ]; then
+  :
+elif command -v curl >/dev/null 2>&1; then
+  INIT_FILE="$TMP_DIR/init.lua"
+  curl -fsSL "$RAW_BASE_URL/init.lua" -o "$INIT_FILE"
+else
+  echo "Could not locate init.lua and curl is not available."
   exit 1
 fi
+
+if [ ! -f "$INIT_FILE" ]; then
+  echo "Missing init.lua file."
+  exit 1
+fi
+
+HAMMERSPOON_APP="/Applications/Hammerspoon.app"
+TARGET_DIR="$HOME/.hammerspoon"
 
 if [ ! -d "$HAMMERSPOON_APP" ]; then
   if command -v brew >/dev/null 2>&1; then
