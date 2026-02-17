@@ -6,6 +6,7 @@ Production-ready Hammerspoon config for automating Keynote "Play in Window" and 
 
 - `init.lua` — Hammerspoon config to run on the target Mac
 - `scripts/bootstrap.sh` — one-shot setup script (copy + launch)
+- `install.sh` — launcher that runs the latest one-shot script from GitHub
 
 ## What it does
 
@@ -34,10 +35,30 @@ If you are deploying to another Mac, use this one-shot command directly:
 curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/scripts/bootstrap.sh | bash
 ```
 
+Or use the canonical launcher:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/install.sh | bash
+```
+
+Both are equivalent. They now install all dependencies automatically, including:
+
+- Hammerspoon via Homebrew when available
+- fallback install from latest Hammerspoon GitHub release zip when Homebrew is unavailable
+- `~/.hammerspoon/init.lua`
+- Hammerspoon restart and endpoint logging
+
 You can also run the script directly from this repository folder:
 
 ```bash
 ./scripts/bootstrap.sh
+```
+
+To get the controller machine IP:
+
+```bash
+ipconfig getifaddr en0
+ipconfig getifaddr en1
 ```
 
 ## Operator quick start
