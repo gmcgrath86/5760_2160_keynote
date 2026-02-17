@@ -101,25 +101,60 @@ install_by_github_release() {
   local zip_file="${TMP_DIR}/hammerspoon.zip"
   local extract_dir="${TMP_DIR}/hammerspoon"
   local app_path
+  local release_page
+  local html_asset
 
-  if ! curl -fsSL "https://api.github.com/repos/Hammerspoon/hammerspoon/releases/latest" -o "$release_json"; then
+  if ! curl -fsSL \
+    -H "Accept: application/vnd.github+json" \
+    -H "User-Agent: keynote-bootstrap" \
+    "https://api.github.com/repos/Hammerspoon/hammerspoon/releases/latest" \
+    -o "$release_json"; then
     log "Could not query GitHub release API."
-    return 1
+  else
+    asset_url="$( \
+      grep -o '"browser_download_url":[[:space:]]*\"[^\"]*\"' "$release_json" \
+      | sed -E 's/.*"([^"]+)"/\\1/' \
+      | grep -E 'Hammerspoon-.*\.zip' \
+      | head -n1
+    )"
   fi
 
-  asset_url="$( \
-    grep '"browser_download_url"' "$release_json" | \
-    grep -o 'https://[^"]*' | \
-    grep -E 'Hammerspoon-.*\.zip' | \
-    head -n1
-  )"
   if [ -z "$asset_url" ]; then
-    log "Could not locate Hammerspoon zip asset in release metadata."
+    log "Falling back to scraping latest release page for asset URL."
+    release_page="${TMP_DIR}/latest_release.html"
+
+    if ! curl -fsSL \
+      -H "User-Agent: keynote-bootstrap" \
+      "https://github.com/Hammerspoon/hammerspoon/releases/latest" \
+      -o "$release_page"; then
+      log "Could not query GitHub releases page."
+      return 1
+    fi
+
+    html_asset="$( \
+      grep -Eo 'Hammerspoon/Hammerspoon/releases/download/[^\" ]+Hammerspoon-[^\" ]+\\.zip' "$release_page" | head -n1
+    )"
+
+    if [ -n "$html_asset" ]; then
+      asset_url="https://github.com/$html_asset"
+    fi
+  fi
+
+  if [ -z "$asset_url" ]; then
+    log "Could not locate Hammerspoon zip asset."
     return 1
   fi
 
   log "Downloading $asset_url"
-  curl -LfsS "$asset_url" -o "$zip_file"
+  if ! curl -fsSL \
+    -H "User-Agent: keynote-bootstrap" \
+    -L \
+    "$asset_url" \
+    -o "$zip_file"; then
+    log "Failed to download Hammerspoon archive from $asset_url"
+    return 1
+  fi
+
   if [ ! -s "$zip_file" ]; then
     log "Downloaded Hammerspoon archive is empty."
     return 1
