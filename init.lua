@@ -179,6 +179,13 @@ local function isLikelyAspect(frame, targetW, targetH, tolerance)
   return delta <= tolerance
 end
 
+local function frameMatchesTarget(frame, targetW, targetH, tolerance)
+  if not frame then
+    return false
+  end
+  return absValue(frame.w - targetW) <= tolerance and absValue(frame.h - targetH) <= tolerance
+end
+
 local function isLikelyNotesFrame(frame)
   if not frame then
     return false
@@ -249,10 +256,6 @@ local function logScreenList(label, screens)
   else
     log.i(string.format("%s: %s", label, table.concat(seen, " | ")))
   end
-end
-
-local function frameMatchesTarget(frame, targetW, targetH, tolerance)
-  return absValue(frame.w - targetW) <= tolerance and absValue(frame.h - targetH) <= tolerance
 end
 
 local function areHorizontallyAdjacent(leftFrame, rightFrame, gapTolerance)
