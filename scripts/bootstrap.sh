@@ -18,6 +18,16 @@ has_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+refresh_brew_cmd() {
+  if [ -x "/opt/homebrew/bin/brew" ]; then
+    PATH="/opt/homebrew/bin:$PATH"
+    export PATH
+  elif [ -x "/usr/local/bin/brew" ]; then
+    PATH="/usr/local/bin:$PATH"
+    export PATH
+  fi
+}
+
 assert_required_cmds() {
   local missing=0
   local cmd
@@ -82,17 +92,64 @@ copy_to_applications() {
   return 1
 }
 
-install_by_brew() {
-  if ! has_cmd brew; then
-    return 1
-  fi
-
-  if brew install --cask hammerspoon; then
+install_homebrew() {
+  if has_cmd brew; then
     return 0
   fi
 
-  log "Homebrew install failed."
+  log "Homebrew not found. Installing Homebrew..."
+  local installer
+  installer="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL "$installer")"
+
+  refresh_brew_cmd
+  if has_cmd brew; then
+    log "Homebrew installed."
+    return 0
+  fi
+
+  log "Homebrew installation did not produce a usable brew command."
   return 1
+}
+
+ensure_hammerspoon_with_brew() {
+  if has_cmd brew; then
+    if brew ls --cask hammerspoon >/dev/null 2>&1; then
+      log "Hammerspoon already installed via Homebrew. Checking for updates..."
+      if ! brew upgrade --cask hammerspoon; then
+        log "Homebrew upgrade hammerspoon failed (continuing with existing version)."
+      fi
+      return
+    fi
+    log "Installing Hammerspoon via Homebrew..."
+    if brew install --cask hammerspoon; then
+      return
+    fi
+    log "Homebrew install of Hammerspoon failed."
+  fi
+}
+
+extract_release_asset_url() {
+  local release_json="$1"
+  local asset_url
+
+  # Prefer explicit Hammerspoon zip asset URL from GitHub API metadata.
+  asset_url="$(grep -oE 'https?://[^"]+Hammerspoon-[^"]*\.zip|https?://[^\"]+\.zip' "$release_json" \
+    | head -n 1 || true)"
+
+  if [ -z "$asset_url" ]; then
+    asset_url="$(grep -oE '"browser_download_url"\s*:\s*"[^"]+"' "$release_json" \
+      | sed -E 's/.*"(.*)"/\1/' \
+      | grep -Ei 'Hammerspoon(.*)\.zip$' \
+      | head -n 1 || true)"
+  fi
+
+  printf '%s' "${asset_url:-}"
+}
+
+is_reachable_url() {
+  local candidate="$1"
+  curl -fsSLI -o /dev/null "$candidate"
 }
 
 install_by_github_release() {
@@ -112,11 +169,7 @@ install_by_github_release() {
     -o "$release_json"; then
     log "Could not query GitHub release API."
   else
-    asset_url="$( \
-      awk -F'\"' '/browser_download_url/ { for (i=1; i<=NF; i++) if ($i ~ /browser_download_url/) { print $(i+2); exit } }' "$release_json" \
-      | grep -E 'Hammerspoon.*\\.zip' \
-      | head -n1
-    )"
+    asset_url="$(extract_release_asset_url "$release_json")"
   fi
 
   if [ -z "$asset_url" ]; then
@@ -128,7 +181,7 @@ install_by_github_release() {
       for candidate in \
         "https://github.com/Hammerspoon/hammerspoon/releases/download/$release_tag/Hammerspoon-$release_tag.zip" \
         "https://github.com/Hammerspoon/hammerspoon/releases/download/$release_tag/Hammerspoon.zip"; do
-        if curl -fsSLI -o /dev/null "$candidate"; then
+        if is_reachable_url "$candidate"; then
           asset_url="$candidate"
           break
         fi
@@ -180,7 +233,18 @@ ensure_hammerspoon() {
     return
   fi
 
-  if install_by_brew; then
+  ensure_homebrew
+
+  if [ -d "$HAMMERSPOON_APP" ]; then
+    log "Hammerspoon now present."
+    return
+  fi
+
+  if has_cmd brew; then
+    ensure_hammerspoon_with_brew
+  fi
+
+  if [ -d "$HAMMERSPOON_APP" ]; then
     log "Hammerspoon installed via Homebrew."
     return
   fi
@@ -238,7 +302,10 @@ main() {
   local default_ip
   if has_cmd ipconfig; then
     default_ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
+  else
+    default_ip=""
   fi
+
   if [ -z "${default_ip:-}" ]; then
     log "Find your Mac IP in System Settings > Network or run: ipconfig getifaddr en0"
   else
