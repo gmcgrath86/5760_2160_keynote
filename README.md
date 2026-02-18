@@ -1,69 +1,72 @@
 # Keynote Hammerspoon Show Control
 
-Production-ready Hammerspoon config for:
-
-- Playing Keynote in Window (`⌥⌘P`)
-- Placing the slideshow window on the configured 2880×2160 side of the 5760×2160 output
-- Moving notes to the 1920×1080 notes output and filling that display
-- Driving `/keynote` control endpoints for Bitfocus Companion
+Production-ready Hammerspoon control for one-button Keynote presentation control on a 5760×2160 stitched output with separate 1920×1080 notes output.
 
 ## Files
 
 - `init.lua` — Hammerspoon configuration loaded from `~/.hammerspoon/init.lua`
-- `scripts/bootstrap.sh` — one-shot installer for Hammerspoon + config copy + restart
-- `install.sh` — remote launcher that resolves the latest repo commit and runs bootstrap
+- `scripts/bootstrap.sh` — one-shot installer for dependencies, config, and Hammerspoon restart
+- `install.sh` — optional entrypoint that resolves a pinned bootstrap commit
 
 ## What it does
 
 - Starts an HTTP server on port `8765` with:
-  - `GET /keynote/left` → launch/activate Keynote, start Play in Window, seat on left half
-  - `GET /keynote/right` → same, seat on right half
+  - `GET /keynote/left` → launch/activate Keynote, start Play in Window, seat slideshow
+  - `GET /keynote/right` → launch/activate Keynote, start Play in Window, seat slideshow
   - `GET /keynote/seat?side=left|right` → idempotent seat on existing playback
-  - `GET /keynote/stop` → send Escape to stop playback
-  - `GET /keynote/health` → returns `OK` when Keynote is present
-- Uses `hs.screen` full-frame geometry, left/right by `fullFrame().x` for standard dual-layouts
-- Handles stitched-layout machines:
-  - Uses a 5760×2160 canvas when present.
-  - Falls back to leftmost/rightmost 2880×2160 outputs when needed.
-- Targets 1920×1080 for notes when available.
-- Logs endpoint hits, screen-role resolution, and final frame placement.
-- Adds hotkey `⌘⌥⌃K` (defaults to left side) to start and seat quickly.
+  - `GET /keynote/stop` → stop playback with Escape
+  - `GET /keynote/health` → returns `OK` when controller responds
+- Uses `hs.screen` full-frame geometry and automatic layout detection:
+  - Detects a 5760×2160 full canvas when present
+  - Detects stitched 2880×2160 side-by-side outputs and uses the full span for slideshow
+  - Falls back to leftmost/rightmost 2880×2160 panel selection
+- Places slideshow window to 5760×2160 target span and notes to 1920×1080 target
+- Adds hotkey `⌘⌥⌃K` (defaults to the left/start flow)
+- Sends structured plain-text HTTP responses with logs for endpoint hit, screen roles, and frame placement
 
 ## One-shot install (blank machine ready)
 
-Run this once on the target Mac:
+Pick one:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/install.sh | bash
 ```
 
-The installer now:
+Direct latest `main` bootstrap (no commit lookup):
 
-- Resolves the latest commit SHA (when possible) for cache-safe bootstrap delivery
-- Falls back to `main` branch if commit resolution fails
-- Checks for Homebrew and installs it if missing
-- Checks/installs Hammerspoon (`brew` first, then GitHub release fallback)
-- Installs `~/.hammerspoon/init.lua` and restarts Hammerspoon
+```bash
+curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/scripts/bootstrap.sh | bash
+```
 
-If you prefer to keep a fixed versioned URL (for air-gapped workflows):
+The installer performs:
+
+- Homebrew check/install if missing
+- Hammerspoon install/update (`brew` first, then GitHub release fallback)
+- `~/.hammerspoon/init.lua` deployment
+- Hammerspoon restart
+- Post-install health check against `http://127.0.0.1:8765/keynote/health`
+- Final console summary with endpoint + hotkey reminder
+
+If you prefer a fixed SHA URL:
 
 ```bash
 LATEST_SHA="$(git ls-remote https://github.com/gmcgrath86/5760_2160_keynote.git HEAD | awk '{print $1}')"
 curl -fsSL "https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/$LATEST_SHA/scripts/bootstrap.sh" | bash
 ```
 
-To find the controller IP:
+## Operator quick start
+
+1. Ensure Hammerspoon has `Accessibility` + `Input Monitoring` in
+   `System Settings → Privacy & Security`.
+2. Run one of the one-shot commands.
+3. Find the controller IP:
 
 ```bash
 ipconfig getifaddr en0
 ipconfig getifaddr en1
 ```
 
-## Operator quick start
-
-1. Enable Accessibility + Input Monitoring for Hammerspoon in System Settings → Privacy & Security.
-2. Run the one-shot command above.
-3. Verify endpoints:
+4. Smoke-test endpoints:
 
 ```bash
 curl http://MAC_IP:8765/keynote/health
@@ -73,7 +76,7 @@ curl "http://MAC_IP:8765/keynote/seat?side=left"
 curl http://MAC_IP:8765/keynote/stop
 ```
 
-4. Configure Companion HTTP GET actions:
+5. Configure Companion HTTP GET actions:
 
 - `http://MAC_IP:8765/keynote/left`
 - `http://MAC_IP:8765/keynote/right`
@@ -83,5 +86,6 @@ curl http://MAC_IP:8765/keynote/stop
 
 ## Notes
 
-- `notesWindowRequired` is set to `true` so `/keynote/left|right` returns an error if a notes window is not found.
-- If your workflow intentionally omits notes, set `notesWindowRequired = false` in `init.lua`.
+- `notesWindowRequired = true` by default in `init.lua`.
+- `/keynote/seat?side=...` reuses existing playback and only repositions windows.
+- If your workflow intentionally skips notes window handling, set `notesWindowRequired = false`.

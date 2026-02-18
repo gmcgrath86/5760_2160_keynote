@@ -244,7 +244,9 @@ ensure_hammerspoon() {
     return
   fi
 
-  ensure_homebrew
+  if ! ensure_homebrew; then
+    log "Homebrew installation/validation did not complete; continuing with fallback installers."
+  fi
 
   if [ -d "$HAMMERSPOON_APP" ]; then
     log "Hammerspoon now present."
@@ -274,6 +276,23 @@ install_config() {
   mkdir -p "$TARGET_DIR"
   cp "$INIT_FILE" "$TARGET_DIR/init.lua"
   log "Config installed to $TARGET_DIR/init.lua"
+}
+
+check_controller_health() {
+  local endpoint="http://127.0.0.1:8765/keynote/health"
+  local attempt
+  for attempt in {1..20}; do
+    local response
+    response="$(curl -fsS --max-time 1 --noproxy '*' "$endpoint" 2>/dev/null || true)"
+    if [ "$response" = "OK" ]; then
+      log "Health check: OK ($endpoint)"
+      return 0
+    fi
+    sleep 0.25
+  done
+
+  log "Health check: not ready yet (endpoint still not responding with OK)."
+  return 1
 }
 
 restart_hammerspoon() {
@@ -309,7 +328,24 @@ main() {
   install_config
   restart_hammerspoon
 
-  log "Hammerspoon is running. Endpoints available on port 8765." 
+  log "Hammerspoon is running. Endpoints available on port 8765."
+
+  if [ ! -f "$TARGET_DIR/init.lua" ]; then
+    log "Installed config not found at $TARGET_DIR/init.lua"
+    exit 1
+  fi
+
+  if has_cmd pgrep && ! pgrep -x Hammerspoon >/dev/null 2>&1; then
+    log "Hammerspoon process check failed after restart."
+    exit 1
+  fi
+
+  if check_controller_health; then
+    log "Post-install health check: OK (controller returned OK)."
+  else
+    log "Post-install health check: controller not responding yet. Open Hammerspoon UI and trigger a reload if needed."
+  fi
+
   local default_ip
   if has_cmd ipconfig; then
     default_ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
@@ -321,9 +357,12 @@ main() {
     log "Find your Mac IP in System Settings > Network or run: ipconfig getifaddr en0"
   else
     log "Test endpoint: curl http://$default_ip:8765/keynote/health"
+    log "Test full control: curl http://$default_ip:8765/keynote/left"
+    log "Hotkey reminder: launch deck on left side with Cmd+Option+Ctrl+K."
   fi
 
   log "Important: allow Accessibility + Input Monitoring for Hammerspoon in System Settings > Privacy & Security."
+  log "Installation complete. Script loaded from scripts/bootstrap.sh and Hammerspoon config is present at $TARGET_DIR/init.lua."
 }
 
 main "$@"
