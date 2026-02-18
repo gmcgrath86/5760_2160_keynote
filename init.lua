@@ -676,7 +676,7 @@ end
 
 local function isLikelyNotesWindow(title)
   local lower = string.lower(title or "")
-  return lower:find("notes", 1, true) or lower:find("speaker", 1, true) or lower:find("presenter", 1, true) or false
+  return lower:find("notes", 1, true) ~= nil or lower:find("speaker", 1, true) ~= nil or lower:find("presenter", 1, true) ~= nil
 end
 
 local function isLikelySlideWindow(title)
@@ -730,6 +730,10 @@ local function chooseWindowByScore(app, excludeIds, targetFrame, role, preferred
     end
 
     local frame = win:frame()
+    if role == "slides" and isLikelyNotesWindow(winTitle) and not isLikelySlideWindow(winTitle) then
+      return nil
+    end
+
     local delta = frameDelta(frame, targetFrame)
     score = score - delta
 
@@ -776,6 +780,9 @@ local function chooseWindowByScoreFallback(app, excludeIds, role)
   if frontmost then
     local id = frontmost:id()
     local title = (frontmost:title() or "")
+    if role == "slides" and isLikelyNotesWindow(title) and not isLikelySlideWindow(title) then
+      return nil, "none"
+    end
     if isKeynoteWindow(frontmost) and frontmost:isStandard() then
       if not (id and excludeIds[id]) then
         if role == "notes" then
@@ -913,24 +920,65 @@ local function startSlideshowAndSeat(side, mode)
     return 500, "Slideshow window not found"
   end
 
-  local ok, seatErr = seatWindow(slideWindow, "slides", slideTarget or slideScreen, slideReason)
-  if not ok then
-    return 500, seatErr
-  end
+  local slideWindowFrame = slideWindow:frame()
 
   local excludeForNotes = keyWindowIds({ slideWindow })
+  local notesWindow = nil
+  local notesReason = nil
   if notesScreen and notesFrame then
-    local notesWindow, notesReason = waitForWindow(app, excludeForNotes, notesFrame, CONFIG.findTimeoutNotes, "notes", nil, false)
+    notesWindow, notesReason = waitForWindow(app, excludeForNotes, notesFrame, CONFIG.findTimeoutNotes, "notes", nil, false)
     if not notesWindow then
       log.w("No separate notes window detected")
       if CONFIG.notesWindowRequired then
         return 500, "Notes window not found"
       end
-      return 200, "OK (notes not found)"
+      notesWindow = nil
     end
+  end
 
-    local notesOk, notesSeatErr = seatWindow(notesWindow, "notes", notesScreen, notesReason)
-    if not notesOk then
+  local notesWindowArea = 0
+  if notesWindow then
+    local currentNotesFrame = notesWindow:frame()
+    notesWindowArea = currentNotesFrame.w * currentNotesFrame.h
+  end
+  local slideWindowArea = slideWindowFrame.w * slideWindowFrame.h
+  local notesSwapped = false
+
+  if notesWindow and notesWindowArea > slideWindowArea then
+    log.w("Window geometry check suggests slide/notes targets are reversed; swapping windows before seating")
+    slideWindow, notesWindow = notesWindow, slideWindow
+    slideWindowFrame = slideWindow:frame()
+    slideReason = "geometry-swap"
+    notesSwapped = true
+  end
+
+  local slideWindowTitle = slideWindow:title() or "unknown"
+  log.i(string.format("Selected slide window (%s): %s", slideWindowTitle, frameToStringShort(slideWindow:frame())))
+  if notesWindow then
+    local notesWindowTitle = notesWindow:title() or "unknown"
+    log.i(string.format("Selected notes window (%s): %s", notesWindowTitle, frameToStringShort(notesWindow:frame())))
+  end
+
+  if notesSwapped and notesWindow and notesFrame then
+    local notesSeatOk, notesSeatErr = seatWindow(notesWindow, "notes", notesScreen, notesReason or "swapped")
+    if notesSeatOk then
+      log.i("Notes window reseated after role swap")
+    else
+      log.w(string.format("Notes window could not be positioned after swap: %s", notesSeatErr))
+      if CONFIG.notesWindowRequired then
+        return 500, notesSeatErr
+      end
+    end
+  end
+
+  local ok, seatErr = seatWindow(slideWindow, "slides", slideTarget or slideScreen, slideReason)
+  if not ok then
+    return 500, seatErr
+  end
+
+  if notesWindow and not notesSwapped then
+    local notesSeatOk, notesSeatErr = seatWindow(notesWindow, "notes", notesScreen, notesReason or "initial")
+    if not notesSeatOk then
       log.w(string.format("Notes window could not be positioned: %s", notesSeatErr))
       if CONFIG.notesWindowRequired then
         return 500, notesSeatErr
