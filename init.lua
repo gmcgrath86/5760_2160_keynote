@@ -179,6 +179,24 @@ local function isLikelyAspect(frame, targetW, targetH, tolerance)
   return delta <= tolerance
 end
 
+local function isLikelyNotesFrame(frame)
+  if not frame then
+    return false
+  end
+  return frameMatchesTarget(frame, CONFIG.notesDisplayWidth, CONFIG.notesDisplayHeight, CONFIG.notesDisplayTolerance * 2)
+    or (frame.w < CONFIG.slideDisplayWidth and frame.h < CONFIG.slideDisplayHeight and isLikelyAspect(frame, CONFIG.notesDisplayWidth, CONFIG.notesDisplayHeight, 0.20))
+end
+
+local function isLikelySlideWindowFrame(frame)
+  if not frame then
+    return false
+  end
+  return isLikelyAspect(frame, CONFIG.slideDisplayWidth, CONFIG.slideDisplayHeight, CONFIG.slideAspectTolerance * 1.8)
+    or isLikelyAspect(frame, CONFIG.slideSpanWidth, CONFIG.slideSpanHeight, CONFIG.slideAspectTolerance * 1.8)
+    or frame.w >= (CONFIG.slideDisplayWidth - CONFIG.slidePanelMinWidth * 0.4)
+      and frame.h >= (CONFIG.slideDisplayHeight - CONFIG.slideDisplayTolerance * 2)
+end
+
 local function isSlidePanelFrame(frame)
   return frame
     and frame.w >= CONFIG.slidePanelMinWidth
@@ -508,6 +526,30 @@ local function screensByRole(side)
   end
 
   local notesScreen = resolveNotesScreen(screens, notesCandidates, alternateSlide)
+
+  local slideFrameCandidate = frameFor(slideFrame or slideScreen)
+  local notesFrameCandidate = safeScreenFrame(notesScreen)
+  local swapRoles = false
+  if notesScreen then
+    local slideLooksNotes = isLikelyNotesFrame(slideFrameCandidate)
+    local slideLooksSlide = isLikelySlideWindowFrame(slideFrameCandidate)
+    local notesLooksNotes = isLikelyNotesFrame(notesFrameCandidate)
+    local notesLooksSlide = isLikelySlideWindowFrame(notesFrameCandidate)
+    local slideArea = slideFrameCandidate and (slideFrameCandidate.w * slideFrameCandidate.h) or 0
+    local notesArea = notesFrameCandidate and (notesFrameCandidate.w * notesFrameCandidate.h) or 0
+    local areaSuggestsSwap = notesArea > 0 and (slideArea < notesArea)
+    if (slideLooksNotes and not notesLooksNotes) or (notesLooksSlide and not slideLooksSlide) or areaSuggestsSwap then
+      swapRoles = true
+    end
+  end
+
+  if swapRoles then
+    log.w("Role geometry sanity check detected reversed screens; swapping slide/notes targets")
+    slideScreen, notesScreen = notesScreen, slideScreen
+    slideFrame = nil
+    slideFrameCandidate = frameFor(slideScreen)
+    notesFrameCandidate = notesScreen and safeScreenFrame(notesScreen)
+  end
 
   local targetFrames = {
     side = side,
