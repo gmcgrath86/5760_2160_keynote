@@ -20,6 +20,10 @@ Production-ready Hammerspoon control for one-button Keynote presentation control
   - Detects a 5760×2160 full canvas when present
   - Detects stitched 2880×2160 side-by-side outputs and uses the full span for slideshow
   - Falls back to leftmost/rightmost 2880×2160 panel selection
+- Includes fixed-name preference for known displays:
+  - `OG-US-5000` is treated as notes output
+  - `SwitchResX4 - E2-01 (2)` is treated as the far-left 2880×2160 slide output
+  - `SwitchResX4 - E2-01 (1)` is treated as the far-right 2880×2160 slide output
 - Places slideshow window to 5760×2160 target span and notes to 1920×1080 target
 - Adds hotkey `⌘⌥⌃K` (defaults to the left/start flow)
 - Hotkey feedback is enabled by default to confirm execution in-cockpit.
