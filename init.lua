@@ -130,10 +130,17 @@ local function frameFor(screenOrFrame)
   if not screenOrFrame then
     return nil
   end
+  if type(screenOrFrame) ~= "table" and type(screenOrFrame) ~= "userdata" then
+    return nil
+  end
   if type(screenOrFrame.fullFrame) == "function" then
     return screenOrFrame:fullFrame()
   end
-  return screenOrFrame
+  local frame = screenOrFrame
+  if frame.x == nil or frame.y == nil or frame.w == nil or frame.h == nil then
+    return nil
+  end
+  return frame
 end
 
 local function isLikelyAspect(frame, targetW, targetH, tolerance)
@@ -344,6 +351,9 @@ end
 local function screenFingerprint(screen)
   local frame = frameFor(screen)
   if not frame then
+    return "n/a"
+  end
+  if type(frame) ~= "table" or frame.x == nil or frame.y == nil or frame.w == nil or frame.h == nil then
     return "n/a"
   end
   return string.format("x=%.0f y=%.0f w=%.0f h=%.0f", frame.x, frame.y, frame.w, frame.h)
