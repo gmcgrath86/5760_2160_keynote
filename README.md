@@ -76,12 +76,22 @@ ipconfig getifaddr en1
 Run this command on the operator Mac to capture the exact role-assignment logs during playback/tests:
 
 ```bash
-if command -v rg >/dev/null 2>&1; then
-  tail -n 220 ~/Library/Logs/Hammerspoon/Hammerspoon.log \
-    | rg -E "Detected screens|Using configured canvas|Screen roles|Using stitched|Selected slide window|Selected notes window|Could not resolve|Could not|Window after seat"
+LOG_FILE="$(find ~/Library/Logs -maxdepth 4 -type f -iname 'Hammerspoon.log' | head -n 1)"
+if [ -z "$LOG_FILE" ]; then
+  LOG_FILE="$(find ~/Library -maxdepth 4 -type f -iname '*Hammerspoon*.log' | head -n 1)"
+fi
+
+if [ -z "$LOG_FILE" ]; then
+  echo "Could not locate Hammerspoon log file; ensure Hammerspoon has launched at least once."
 else
-  tail -n 220 ~/Library/Logs/Hammerspoon/Hammerspoon.log \
-    | grep -E "Detected screens|Using configured canvas|Screen roles|Using stitched|Selected slide window|Selected notes window|Could not resolve|Could not|Window after seat"
+  echo "Reading: $LOG_FILE"
+  if command -v rg >/dev/null 2>&1; then
+    tail -n 220 "$LOG_FILE" \
+      | rg -E "Detected screens|Using configured canvas|Screen roles|Using stitched|Selected slide window|Selected notes window|Could not resolve|Could not|Window after seat"
+  else
+    tail -n 220 "$LOG_FILE" \
+      | grep -E "Detected screens|Using configured canvas|Screen roles|Using stitched|Selected slide window|Selected notes window|Could not resolve|Could not|Window after seat"
+  fi
 fi
 ```
 
