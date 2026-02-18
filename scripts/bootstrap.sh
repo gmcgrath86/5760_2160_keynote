@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_RAW_URL="https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main"
+BOOTSTRAP_REF="${KEYNOTE_BOOTSTRAP_REF:-main}"
+REPO_RAW_URL="https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/${BOOTSTRAP_REF}"
 INIT_URL="${REPO_RAW_URL}/init.lua"
 HAMMERSPOON_APP="/Applications/Hammerspoon.app"
 TARGET_DIR="${HOME}/.hammerspoon"
@@ -112,9 +113,8 @@ install_by_github_release() {
     log "Could not query GitHub release API."
   else
     asset_url="$( \
-      grep -o '"browser_download_url":[[:space:]]*\"[^\"]*\"' "$release_json" \
-      | sed -E 's/.*"([^"]+)"/\\1/' \
-      | grep -E 'Hammerspoon-.*\.zip' \
+      awk -F'\"' '/browser_download_url/ { for (i=1; i<=NF; i++) if ($i ~ /browser_download_url/) { print $(i+2); exit } }' "$release_json" \
+      | grep -E 'Hammerspoon.*\\.zip' \
       | head -n1
     )"
   fi

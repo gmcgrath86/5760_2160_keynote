@@ -1,74 +1,57 @@
 # Keynote Hammerspoon Show Control
 
-Production-ready Hammerspoon config for automating Keynote "Play in Window" and snapping the slideshow window to either 2880x2160 half of a 5760x2160 dual-screen setup.
+Production-ready Hammerspoon config for:
+
+- Playing Keynote in Window (`⌥⌘P`)
+- Placing the slideshow window on the configured 2880×2160 side of the 5760×2160 output
+- Moving notes to the 1920×1080 notes output and filling that display
+- Driving `/keynote` control endpoints for Bitfocus Companion
 
 ## Files
 
-- `init.lua` — Hammerspoon config to run on the target Mac
-- `scripts/bootstrap.sh` — one-shot setup script (copy + launch)
-- `install.sh` — launcher that runs the latest one-shot script from GitHub
+- `init.lua` — Hammerspoon configuration loaded from `~/.hammerspoon/init.lua`
+- `scripts/bootstrap.sh` — one-shot installer for Hammerspoon + config copy + restart
+- `install.sh` — remote launcher that resolves the latest repo commit and runs bootstrap
 
 ## What it does
 
-- Runs an HTTP server on port `8765` with endpoints:
-  - `GET /keynote/left` -> launch/activate Keynote, start Play in Window (⌥⌘P), seat on left 2880×2160 area
-  - `GET /keynote/right` -> same, seat on right 2880×2160 area
-  - `GET /keynote/seat?side=left|right` -> idempotent seat only if a slideshow window is already running
-  - `GET /keynote/stop` -> send Escape twice
-  - `GET /keynote/health` -> health check
-- Chooses target display via `hs.screen` leftmost/rightmost by `fullFrame().x`
-- Uses `screen:fullFrame()` for full-screen sizing on each target display
-- Logs endpoint hits, screen layout, and seat attempt details
-- Adds hotkey `⌘⌥⌃K` to start and seat on the configured default side (`left` in `init.lua`)
+- Starts an HTTP server on port `8765` with:
+  - `GET /keynote/left` → launch/activate Keynote, start Play in Window, seat on left half
+  - `GET /keynote/right` → same, seat on right half
+  - `GET /keynote/seat?side=left|right` → idempotent seat on existing playback
+  - `GET /keynote/stop` → send Escape to stop playback
+  - `GET /keynote/health` → returns `OK` when Keynote is present
+- Uses `hs.screen` full-frame geometry, left/right by `fullFrame().x` for standard dual-layouts
+- Handles stitched-layout machines:
+  - Uses a 5760×2160 canvas when present.
+  - Falls back to leftmost/rightmost 2880×2160 outputs when needed.
+- Targets 1920×1080 for notes when available.
+- Logs endpoint hits, screen-role resolution, and final frame placement.
+- Adds hotkey `⌘⌥⌃K` (defaults to left side) to start and seat quickly.
 
-## One-shot terminal install/run
+## One-shot install (blank machine ready)
 
-From this folder:
-
-```bash
-./scripts/bootstrap.sh
-```
-
-If you are deploying to another Mac, use this one-shot command directly:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/scripts/bootstrap.sh | bash
-```
-
-Or use the canonical launcher:
+Run this once on the target Mac:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/install.sh | bash
 ```
 
-If you still hit stale cached versions from `/main`, use this cache-busting command (this is now the most reliable form):
+The installer now:
+
+- Resolves the latest commit SHA (when possible) for cache-safe bootstrap delivery
+- Falls back to `main` branch if commit resolution fails
+- Installs Hammerspoon if missing (Homebrew first, then GitHub release fallback)
+- Installs `~/.hammerspoon/init.lua` and restarts Hammerspoon
+
+If you prefer to keep a fixed versioned URL (for air-gapped workflows):
 
 ```bash
 LATEST_SHA="$(git ls-remote https://github.com/gmcgrath86/5760_2160_keynote.git HEAD | awk '{print $1}')"
 curl -fsSL "https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/$LATEST_SHA/scripts/bootstrap.sh" | bash
 ```
 
-If `git` is unavailable on the machine, use this API fallback:
-
-```bash
-LATEST_SHA="$(curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: keynote-bootstrap-installer' https://api.github.com/repos/gmcgrath86/5760_2160_keynote/commits/main | grep -oE '\"sha\":\"[0-9a-f]{40}\"' | head -n1 | cut -d'\"' -f4)"
-curl -fsSL "https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/$LATEST_SHA/scripts/bootstrap.sh" | bash
-```
-
-Both are equivalent. They now install all dependencies automatically, including:
-
-- Hammerspoon via Homebrew when available
-- fallback install from latest Hammerspoon GitHub release zip when Homebrew is unavailable
-- `~/.hammerspoon/init.lua`
-- Hammerspoon restart and endpoint logging
-
-You can also run the script directly from this repository folder:
-
-```bash
-./scripts/bootstrap.sh
-```
-
-To get the controller machine IP:
+To find the controller IP:
 
 ```bash
 ipconfig getifaddr en0
@@ -77,9 +60,9 @@ ipconfig getifaddr en1
 
 ## Operator quick start
 
-1. Enable Accessibility and Input Monitoring for Hammerspoon in System Settings.
-2. Install/run the one-shot command.
-3. Confirm endpoint from an operator laptop or the same Mac:
+1. Enable Accessibility + Input Monitoring for Hammerspoon in System Settings → Privacy & Security.
+2. Run the one-shot command above.
+3. Verify endpoints:
 
 ```bash
 curl http://MAC_IP:8765/keynote/health
@@ -89,29 +72,15 @@ curl "http://MAC_IP:8765/keynote/seat?side=left"
 curl http://MAC_IP:8765/keynote/stop
 ```
 
-`MAC_IP` is the IP of the Mac running Hammerspoon.
+4. Configure Companion HTTP GET actions:
 
-4. In Bitfocus Companion, create HTTP GET actions:
 - `http://MAC_IP:8765/keynote/left`
 - `http://MAC_IP:8765/keynote/right`
 - `http://MAC_IP:8765/keynote/stop`
+- Optional: `http://MAC_IP:8765/keynote/seat?side=left`
+- Optional: `http://MAC_IP:8765/keynote/seat?side=right`
 
-Optional: add one for `/keynote/seat?side=left` and `/keynote/seat?side=right`.
+## Notes
 
-## GitHub backup workflow
-
-After creating a new GitHub repo:
-
-1. From this folder run:
-
-```bash
-git init
-git add init.lua scripts/bootstrap.sh README.md
-
-git commit -m "Add production-ready Keynote Hammerspoon controller"
-git remote add origin https://github.com/<ORG>/<REPO>.git
-git branch -M main
-git push -u origin main
-```
-
-Then send me the repo URL and I can review the final remote link workflow.
+- `notesWindowRequired = false` is configured by default so notes-window anomalies do not fail the slide start.
+- Set to `true` in `init.lua` if you want `/keynote/left|right` to return a failure when notes window is missing.

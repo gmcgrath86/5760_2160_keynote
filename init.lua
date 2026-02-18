@@ -13,6 +13,20 @@ local CONFIG = {
   playShortcut = { mods = { "alt", "cmd" }, key = "p" },
   showAlerts = false,
   logLevel = "info",
+
+  -- Screen role matching
+  slideSpanWidth = 5760,
+  slideSpanHeight = 2160,
+  slideSpanTolerance = 20,
+  slideDisplayWidth = 2880,
+  slideDisplayHeight = 2160,
+  notesDisplayWidth = 1920,
+  notesDisplayHeight = 1080,
+  slideDisplayTolerance = 16,
+  notesDisplayTolerance = 20,
+  notesWindowRequired = false,
+
+  -- Delays and timing
   activateDelay = 0.20,
   playDelay = 0.35,
   stopDelay = 0.06,
@@ -20,6 +34,8 @@ local CONFIG = {
   seatPoll = 0.10,
   findTimeoutStart = 3.5,
   findTimeoutSeat = 0.7,
+  findTimeoutNotes = 1.2,
+  forceNotesFullscreen = true,
   frameTolerance = 2,
   fullFrameTolerance = 8,
   screenLogLimit = 4,
@@ -75,6 +91,21 @@ local function normalizeSide(side)
   return nil
 end
 
+local function absValue(v)
+  return (v < 0) and -v or v
+end
+
+local function framesClose(a, b, tolerance)
+  return absValue(a.x - b.x) <= tolerance
+    and absValue(a.y - b.y) <= tolerance
+    and absValue(a.w - b.w) <= tolerance
+    and absValue(a.h - b.h) <= tolerance
+end
+
+local function frameToStringShort(frame)
+  return string.format("%.0fx%.0f @ (%.0f,%.0f)", frame.w, frame.h, frame.x, frame.y)
+end
+
 local function allScreensLeftToRight()
   local screens = hs.screen.allScreens()
   table.sort(screens, function(a, b)
@@ -83,8 +114,7 @@ local function allScreensLeftToRight()
   return screens
 end
 
-local function logScreens()
-  local screens = allScreensLeftToRight()
+local function logScreens(screens)
   local seen = {}
   for index, screen in ipairs(screens) do
     if index > CONFIG.screenLogLimit then
@@ -92,32 +122,151 @@ local function logScreens()
     end
     local frame = screen:fullFrame()
     local name = screen:name() or "Unknown"
-    table.insert(seen, string.format("%s: %s", name, frameToString(frame)))
+    table.insert(seen, string.format("%s: %s", name, frameToStringShort(frame)))
   end
-  log.i("Detected screen order: " .. table.concat(seen, " | "))
+  log.i("Detected screens: " .. table.concat(seen, " | "))
   return screens
 end
 
-local function screensBySide()
-  local screens = logScreens()
-  if #screens < 2 then
-    return nil, nil, "Need at least two displays"
-  end
-  return screens[1], screens[#screens], nil
+local function frameMatchesTarget(frame, targetW, targetH, tolerance)
+  return absValue(frame.w - targetW) <= tolerance and absValue(frame.h - targetH) <= tolerance
 end
 
-local function targetScreenForSide(side)
-  local left, right, err = screensBySide()
-  if err then
-    return nil, err
+local function sortScreensByArea(screens)
+  local withArea = {}
+  for _, screen in ipairs(screens) do
+    local frame = screen:fullFrame()
+    local area = frame.w * frame.h
+    table.insert(withArea, { screen = screen, area = area })
   end
-  if side == "left" then
-    return left, nil
+  table.sort(withArea, function(a, b)
+    return a.area > b.area
+  end)
+  local ordered = {}
+  for _, entry in ipairs(withArea) do
+    table.insert(ordered, entry.screen)
   end
-  if side == "right" then
-    return right, nil
+  return ordered
+end
+
+local function candidateScreens(screens)
+  local fullCanvasCandidates = {}
+  local halfCanvasCandidates = {}
+  local notesCandidates = {}
+
+  for _, screen in ipairs(screens) do
+    local frame = screen:fullFrame()
+    if frameMatchesTarget(frame, CONFIG.slideSpanWidth, CONFIG.slideSpanHeight, CONFIG.slideSpanTolerance) then
+      table.insert(fullCanvasCandidates, screen)
+    end
+    if frameMatchesTarget(frame, CONFIG.slideDisplayWidth, CONFIG.slideDisplayHeight, CONFIG.slideDisplayTolerance) then
+      table.insert(halfCanvasCandidates, screen)
+    end
+    if frameMatchesTarget(frame, CONFIG.notesDisplayWidth, CONFIG.notesDisplayHeight, CONFIG.notesDisplayTolerance) then
+      table.insert(notesCandidates, screen)
+    end
   end
-  return nil, "Invalid side (expected left or right)"
+
+  return fullCanvasCandidates, halfCanvasCandidates, notesCandidates
+end
+
+local function screenFingerprint(screen)
+  local frame = screen:fullFrame()
+  return string.format("x=%.0f y=%.0f w=%.0f h=%.0f", frame.x, frame.y, frame.w, frame.h)
+end
+
+local function resolveSlideScreens(side, screens, halfCanvasCandidates, fullCanvasCandidates)
+  if #fullCanvasCandidates >= 1 then
+    if #halfCanvasCandidates >= 2 then
+      log.i("Detected unified canvas output (5760x2160) plus 2880x2160 outputs; using unified output for slideshow")
+    else
+      log.i("Detected unified canvas output (5760x2160); using that for slideshow")
+    end
+    return fullCanvasCandidates[1], fullCanvasCandidates[1]
+  end
+
+  if #halfCanvasCandidates >= 2 then
+    local leftSlide = halfCanvasCandidates[1]
+    local rightSlide = halfCanvasCandidates[#halfCanvasCandidates]
+    if side == "left" then
+      return leftSlide, rightSlide
+    end
+    return rightSlide, leftSlide
+  end
+
+  if #halfCanvasCandidates == 1 then
+    log.w("Only one 2880x2160 screen detected; using it for both sides")
+    local single = halfCanvasCandidates[1]
+    return single, single
+  end
+
+  local byArea = sortScreensByArea(screens)
+  if #byArea >= 1 then
+    log.w("Falling back to largest screen for slideshow")
+    return byArea[1], byArea[1]
+  end
+
+  return nil, nil
+end
+
+local function resolveNotesScreen(screens, notesCandidates, slideScreen)
+  if #notesCandidates >= 1 then
+    return notesCandidates[1]
+  end
+
+  for _, screen in ipairs(screens) do
+    if screen ~= slideScreen then
+      return screen
+    end
+  end
+
+  return slideScreen
+end
+
+local function screensByRole(side)
+  local screens = logScreens(allScreensLeftToRight())
+  if #screens < 2 then
+    return nil, nil, nil, "Need at least two displays"
+  end
+
+  local fullCanvasCandidates, halfCanvasCandidates, notesCandidates = candidateScreens(screens)
+  local slideScreen, alternateSlide = resolveSlideScreens(side, screens, halfCanvasCandidates, fullCanvasCandidates)
+  if not slideScreen then
+    return nil, nil, nil, "Could not resolve slide output"
+  end
+
+  local notesScreen = resolveNotesScreen(screens, notesCandidates, alternateSlide)
+
+  local targetFrames = {
+    side = side,
+    slide = screenFingerprint(slideScreen),
+    notes = notesScreen and screenFingerprint(notesScreen) or "n/a",
+    fullCanvasCount = #fullCanvasCandidates,
+    halfCanvasCount = #halfCanvasCandidates,
+    notesCandidates = #notesCandidates,
+  }
+  log.i(string.format("Screen roles: side=%s slide=%s notes=%s | candidates full=%d half=%d notes=%d", targetFrames.side, targetFrames.slide, targetFrames.notes, targetFrames.fullCanvasCount, targetFrames.halfCanvasCount, targetFrames.notesCandidates))
+
+  return slideScreen, notesScreen, nil, nil
+end
+
+local function targetScreens(side)
+  local slideScreen, notesScreen, _, err = screensByRole(side)
+  if not slideScreen then
+    return nil, nil, nil, err or "Need two screens"
+  end
+  return slideScreen, notesScreen, side, nil
+end
+
+local function describeRoleFrames(side, slideScreen, notesScreen)
+  local slideFrame = slideScreen and slideScreen:fullFrame()
+  local notesFrame = notesScreen and notesScreen:fullFrame()
+  log.i(string.format(
+    "Resolved role: side=%s slide=%s notes=%s",
+    side,
+    slideFrame and frameToStringShort(slideFrame) or "n/a",
+    notesFrame and frameToStringShort(notesFrame) or "n/a"
+  ))
 end
 
 local function findKeynoteApp()
@@ -174,68 +323,111 @@ local function isKeynoteWindow(win)
 end
 
 local function frameDelta(a, b)
-  return math.abs(a.x - b.x) + math.abs(a.y - b.y) + math.abs(a.w - b.w) + math.abs(a.h - b.h)
+  return absValue(a.x - b.x) + absValue(a.y - b.y) + absValue(a.w - b.w) + absValue(a.h - b.h)
 end
 
-local function titleScore(title)
+local function titleContains(lowerTitle, token)
+  return lowerTitle:find(token, 1, true) ~= nil
+end
+
+local function titleScoreForRole(title, role)
   local lower = string.lower(title or "")
-  if lower == "" then
-    return 2
-  end
   local score = 0
-  if lower:find("slideshow", 1, true) then
+
+  if role == "notes" then
+    if titleContains(lower, "notes") or titleContains(lower, "speaker") or titleContains(lower, "presenter") then
+      score = score + 180
+    end
+    if titleContains(lower, "slideshow") then
+      score = score + 40
+    end
+    return score
+  end
+
+  if titleContains(lower, "slideshow") then
     score = score + 90
   end
-  if lower:find("presentation", 1, true) then
+  if titleContains(lower, "keynote") then
+    score = score + 15
+  end
+  if titleContains(lower, "presentation") then
     score = score + 60
   end
-  if lower:find("play", 1, true) then
+  if titleContains(lower, "play") then
     score = score + 30
   end
   return score
 end
 
-local function chooseWindowByScore(app, preWindowIds, targetFrame, includeExisting)
+local function isLikelyNotesWindow(title)
+  local lower = string.lower(title or "")
+  return lower:find("notes", 1, true) or lower:find("speaker", 1, true) or lower:find("presenter", 1, true) or false
+end
+
+local function isLikelySlideWindow(title)
+  local lower = string.lower(title or "")
+  if lower == "" then
+    return false
+  end
+  return lower:find("slideshow", 1, true) or lower:find("slide", 1, true) or lower:find("keynote", 1, true) or false
+end
+
+local function chooseWindowByScore(app, excludeIds, targetFrame, role, preferredWindowId)
   local windows = app:allWindows() or {}
   local frontmost = hs.window.frontmostWindow()
+  local preferredTitleMatch = preferredWindowId
   local bestWindow, bestScore
 
   local function scoreWindow(win)
     if not isKeynoteWindow(win) or not win:isStandard() then
       return nil
     end
-    if preWindowIds and not includeExisting then
-      local id = win:id()
-      if id and preWindowIds[id] then
-        return nil
+
+    local id = win:id()
+    if id and excludeIds[id] then
+      return nil
+    end
+
+    local winTitle = win:title()
+    local score = titleScoreForRole(winTitle, role)
+
+    local id = win:id()
+    if preferredTitleMatch and id == preferredTitleMatch then
+      score = score + 260
+    end
+
+    if role == "notes" then
+      if isLikelyNotesWindow(winTitle) then
+        score = score + 170
       end
+    elseif isLikelySlideWindow(winTitle) then
+      score = score + 120
     end
-    local score = 0
+
     local frame = win:frame()
-    score = score + titleScore(win:title())
-    score = score - frameDelta(frame, targetFrame)
+    local delta = frameDelta(frame, targetFrame)
+    score = score - delta
+
+    local targetArea = targetFrame.w * targetFrame.h
+    if targetArea > 0 then
+      local area = frame.w * frame.h
+      local ratio = area / targetArea
+      score = score + math.floor(700 - absValue(ratio - 1) * 800)
+    end
+
     if math.abs(frame.w - targetFrame.w) <= CONFIG.fullFrameTolerance then
-      score = score + 80
+      score = score + 90
     end
+
     if math.abs(frame.h - targetFrame.h) <= CONFIG.fullFrameTolerance then
-      score = score + 80
+      score = score + 90
     end
+
     if win == frontmost then
       score = score + 45
     end
-    local area = frame.w * frame.h
-    if targetFrame.w * targetFrame.h > 0 then
-      local ratio = area / (targetFrame.w * targetFrame.h)
-      score = score + math.floor((1000 - math.abs(ratio - 1) * 400))
-    end
-    return score
-  end
 
-  if preWindowIds then
-    local frontId = frontmost and frontmost:id()
-    if frontmost and frontmost ~= nil and isKeynoteWindow(frontmost) and not (frontId and preWindowIds[frontId]) then
-      return frontmost, "frontmost-new"
-    end
+    return score
   end
 
   for _, win in ipairs(windows) do
@@ -253,59 +445,105 @@ local function chooseWindowByScore(app, preWindowIds, targetFrame, includeExisti
   end
   return nil, "none"
 end
-local function waitForWindow(app, preWindowIds, targetFrame, timeoutSeconds, includeExisting)
+
+local function chooseWindowByScoreFallback(app, excludeIds, role)
+  local frontmost = hs.window.frontmostWindow()
+  if frontmost then
+    local id = frontmost:id()
+    local title = (frontmost:title() or "")
+    if isKeynoteWindow(frontmost) and frontmost:isStandard() then
+      if not (id and excludeIds[id]) then
+        if role == "notes" then
+          if isLikelyNotesWindow(title) then
+            return frontmost, "frontmost-notes-title"
+          end
+        else
+          return frontmost, "frontmost"
+        end
+      end
+    end
+  end
+  return nil, "none"
+end
+
+local function waitForWindow(app, excludeIds, targetFrame, timeoutSeconds, role, preferredWindowId)
   local deadline = hs.timer.secondsSinceEpoch() + timeoutSeconds
   while hs.timer.secondsSinceEpoch() < deadline do
-    local win, reason = chooseWindowByScore(app, preWindowIds, targetFrame, includeExisting)
+    local win, reason = chooseWindowByScore(app, excludeIds, targetFrame, role, preferredWindowId)
     if win then
       return win, reason
     end
+
+    local fallbackWindow, fallbackReason = chooseWindowByScoreFallback(app, excludeIds, role)
+    if fallbackWindow then
+      return fallbackWindow, fallbackReason
+    end
+
     hs.timer.usleep(ms(CONFIG.seatPoll))
   end
   return nil, "timeout"
 end
 
-local function framesMatch(actual, expected, tolerance)
-  return math.abs(actual.x - expected.x) <= tolerance
-    and math.abs(actual.y - expected.y) <= tolerance
-    and math.abs(actual.w - expected.w) <= tolerance
-    and math.abs(actual.h - expected.h) <= tolerance
-end
-
-local function seatWindow(win, side, screen, reason)
-  local target = screen:fullFrame()
-  log.i(string.format("Seating (%s) to %s screen: %s", reason or "unknown", side, frameToString(target)))
-
-  win:raise()
-  win:focus()
+local function applyFrame(win, target)
   win:setFrame(target, 0)
   hs.timer.usleep(ms(CONFIG.settleDelay))
 
   local current = win:frame()
-  if not framesMatch(current, target, CONFIG.frameTolerance) then
+  if not framesClose(current, target, CONFIG.frameTolerance) then
     win:setTopLeft({ x = target.x, y = target.y })
     win:setSize({ w = target.w, h = target.h })
     hs.timer.usleep(ms(CONFIG.settleDelay))
     current = win:frame()
   end
+  return current
+end
 
-  log.i("Window after seat: " .. frameToString(current))
-  if not framesMatch(current, target, CONFIG.frameTolerance) then
-    maybeAlert("Keynote seat failed")
-    return false, "Failed to set slideshow window frame"
+local function seatWindow(win, role, screen, reason)
+  local target = screen:fullFrame()
+  local roleLabel = (role == "notes") and "notes" or "slides"
+  log.i(string.format("Seating (%s) %s window to %s", reason or "unknown", roleLabel, frameToString(target)))
+
+  win:raise()
+  win:focus()
+
+  local current = applyFrame(win, target)
+  if not framesClose(current, target, CONFIG.frameTolerance) then
+    return false, string.format("Failed to set %s window position", roleLabel)
   end
 
+  if role == "notes" and CONFIG.forceNotesFullscreen and win.setFullScreen then
+    local canFullscreen = win.isFullScreen ~= nil and win.setFullScreen ~= nil
+    if canFullscreen and not win:isFullScreen() then
+      local ok = pcall(function()
+        win:setFullScreen(true)
+      end)
+      if ok then
+        hs.timer.usleep(ms(CONFIG.settleDelay * 2))
+      end
+    end
+    if canFullscreen and win:isFullScreen() then
+      log.i(string.format("Notes window entered fullscreen"))
+      return true, nil
+    end
+    log.w("Could not force notes window fullscreen; leaving it windowed on target notes display")
+  end
+
+  log.i(string.format("Window after seat (%s): %s", roleLabel, frameToString(current)))
   return true, nil
 end
 
 local function startSlideshowAndSeat(side, mode)
-  local targetScreen, screenErr = targetScreenForSide(side)
-  if not targetScreen then
-    return 503, screenErr
+  local slideScreen, notesScreen, targetSide, err = targetScreens(side)
+  if not slideScreen then
+    return 503, err
   end
-  local targetFrame = targetScreen:fullFrame()
+  describeRoleFrames(targetSide, slideScreen, notesScreen)
+
+  local targetFrame = slideScreen:fullFrame()
+  local notesFrame = notesScreen and notesScreen:fullFrame()
   local app, appErr
   local includeExisting = (mode == "seat")
+  local preferredWindowId = nil
 
   if includeExisting then
     app, appErr = getRunningKeynote()
@@ -319,27 +557,53 @@ local function startSlideshowAndSeat(side, mode)
     end
   end
 
-  local preWindowIds
+  local preWindowIds = includeExisting and {} or keyWindowIds(app:allWindows())
   if not includeExisting then
-    preWindowIds = keyWindowIds(app:allWindows())
     hs.eventtap.keyStroke(CONFIG.playShortcut.mods, CONFIG.playShortcut.key, 0, app)
     log.i("Sent Option+Command+P to start Play in Window")
     hs.timer.usleep(ms(CONFIG.playDelay))
+    local frontmost = hs.window.frontmostWindow()
+    if frontmost then
+      local id = frontmost:id()
+      if id then
+        preferredWindowId = id
+      end
+    end
   else
     hs.timer.usleep(ms(0.12))
   end
 
-  local timeout = includeExisting and CONFIG.findTimeoutSeat or CONFIG.findTimeoutStart
-  local window, reason = waitForWindow(app, preWindowIds, targetFrame, timeout, includeExisting)
-  if not window then
+  local slideTimeout = includeExisting and CONFIG.findTimeoutSeat or CONFIG.findTimeoutStart
+  local slideWindow, slideReason = waitForWindow(app, preWindowIds, targetFrame, slideTimeout, "slides", preferredWindowId)
+  if not slideWindow then
     log.e("Keynote slideshow window not found")
     maybeAlert("No Keynote slideshow window")
     return 500, "Slideshow window not found"
   end
 
-  local ok, seatErr = seatWindow(window, side, targetScreen, reason)
+  local ok, seatErr = seatWindow(slideWindow, "slides", slideScreen, slideReason)
   if not ok then
     return 500, seatErr
+  end
+
+  local excludeForNotes = keyWindowIds({ slideWindow })
+  if notesScreen and notesFrame then
+    local notesWindow, notesReason = waitForWindow(app, excludeForNotes, notesFrame, CONFIG.findTimeoutNotes, "notes")
+    if not notesWindow then
+      log.w("No separate notes window detected")
+      if CONFIG.notesWindowRequired then
+        return 500, "Notes window not found"
+      end
+      return 200, "OK (notes not found)"
+    end
+
+    local notesOk, notesSeatErr = seatWindow(notesWindow, "notes", notesScreen, notesReason)
+    if not notesOk then
+      log.w(string.format("Notes window could not be positioned: %s", notesSeatErr))
+      if CONFIG.notesWindowRequired then
+        return 500, notesSeatErr
+      end
+    end
   end
 
   local label = includeExisting and "seated" or "started+seated"
