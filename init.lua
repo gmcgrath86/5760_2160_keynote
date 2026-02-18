@@ -440,12 +440,23 @@ local function pushIfMissing(list, screen, seen)
 end
 
 local function resolveSlideScreens(side, screens, halfCanvasCandidates, fullCanvasCandidates)
+  local useLeftSide = (side == "left")
+
   if #fullCanvasCandidates >= 1 then
     if #halfCanvasCandidates >= 2 then
-      log.i("Detected unified canvas output (5760x2160) plus 2880x2160 outputs; using unified output for slideshow")
+      log.i("Detected unified canvas output (5760x2160) plus 2880x2160 outputs")
     else
       log.i("Detected unified canvas output (5760x2160); using that for slideshow")
     end
+
+    if #halfCanvasCandidates >= 2 then
+      local stitchedFrame, stitchedLeft, stitchedRight = resolveStitchedFrame(halfCanvasCandidates)
+      if stitchedFrame then
+        log.i(string.format("Using stitched %s-side 2880x2160 panel for slideshow", useLeftSide and "left" or "right"))
+        return useLeftSide and stitchedLeft or stitchedRight, useLeftSide and stitchedRight or stitchedLeft, nil
+      end
+    end
+
     return fullCanvasCandidates[1], fullCanvasCandidates[1], nil
   end
 
@@ -472,8 +483,8 @@ local function resolveSlideScreens(side, screens, halfCanvasCandidates, fullCanv
   end
 
   if stitchedFrame then
-    log.i("Detected stitched 2880x2160 output pair; using full 5760x2160 span for slideshow")
-    return stitchedLeft, stitchedRight, stitchedFrame
+    log.i("Detected stitched 2880x2160 output pair for slideshow")
+    return useLeftSide and stitchedLeft or stitchedRight, useLeftSide and stitchedRight or stitchedLeft, nil
   end
 
   if #halfCanvasCandidates >= 2 then
@@ -502,6 +513,11 @@ end
 
 local function resolveNotesScreen(screens, notesCandidates, slideScreen)
   if #notesCandidates >= 1 then
+    for _, notesScreen in ipairs(notesCandidates) do
+      if notesScreen ~= slideScreen then
+        return notesScreen
+      end
+    end
     return notesCandidates[1]
   end
 
@@ -520,6 +536,8 @@ local function screensByRole(side)
     return nil, nil, nil, "Need at least two displays"
   end
 
+  local sideResolution = (normalizeSide(side) == "left") and "left" or "right"
+
   local fullCanvasCandidates, halfCanvasCandidates, notesCandidates = candidateScreens(screens)
   logScreenList("fullCanvas candidates", fullCanvasCandidates)
   logScreenList("slidePanel candidates", halfCanvasCandidates)
@@ -529,41 +547,29 @@ local function screensByRole(side)
     return nil, nil, nil, "Could not resolve slide output"
   end
 
-  local notesScreen = resolveNotesScreen(screens, notesCandidates, alternateSlide)
-
-  local slideFrameCandidate = frameFor(slideFrame or slideScreen)
-  local notesFrameCandidate = safeScreenFrame(notesScreen)
-  local swapRoles = false
-  if notesScreen then
-    local slideLooksNotes = isLikelyNotesFrame(slideFrameCandidate)
-    local slideLooksSlide = isLikelySlideWindowFrame(slideFrameCandidate)
-    local notesLooksNotes = isLikelyNotesFrame(notesFrameCandidate)
-    local notesLooksSlide = isLikelySlideWindowFrame(notesFrameCandidate)
-    local slideArea = slideFrameCandidate and (slideFrameCandidate.w * slideFrameCandidate.h) or 0
-    local notesArea = notesFrameCandidate and (notesFrameCandidate.w * notesFrameCandidate.h) or 0
-    local areaSuggestsSwap = notesArea > 0 and (slideArea < notesArea)
-    if (slideLooksNotes and not notesLooksNotes) or (notesLooksSlide and not slideLooksSlide) or areaSuggestsSwap then
-      swapRoles = true
-    end
-  end
-
-  if swapRoles then
-    log.w("Role geometry sanity check detected reversed screens; swapping slide/notes targets")
-    slideScreen, notesScreen = notesScreen, slideScreen
-    slideFrame = nil
-    slideFrameCandidate = frameFor(slideScreen)
-    notesFrameCandidate = notesScreen and safeScreenFrame(notesScreen)
-  end
+  local notesScreen = resolveNotesScreen(screens, notesCandidates, slideScreen)
 
   local targetFrames = {
-    side = side,
+    side = sideResolution,
     slide = safeScreenFingerprint(slideFrame or slideScreen),
     notes = notesScreen and safeScreenFingerprint(notesScreen) or "n/a",
     fullCanvasCount = #fullCanvasCandidates,
     halfCanvasCount = #halfCanvasCandidates,
     notesCandidates = #notesCandidates,
+    alternateSlide = safeScreenFingerprint(alternateSlide),
+    sideResolution = sideResolution,
   }
-  log.i(string.format("Screen roles: side=%s slide=%s notes=%s | candidates full=%d half=%d notes=%d", targetFrames.side, targetFrames.slide, targetFrames.notes, targetFrames.fullCanvasCount, targetFrames.halfCanvasCount, targetFrames.notesCandidates))
+  log.i(string.format(
+    "Screen roles: side=%s(%s) slide=%s notes=%s fullCandidates=%d halfCandidates=%d notesCandidates=%d alternate=%s",
+    targetFrames.side,
+    targetFrames.sideResolution,
+    targetFrames.slide,
+    targetFrames.notes,
+    targetFrames.fullCanvasCount,
+    targetFrames.halfCanvasCount,
+    targetFrames.notesCandidates,
+    targetFrames.alternateSlide
+  ))
 
   return slideScreen, notesScreen, slideFrame, nil
 end
