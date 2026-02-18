@@ -41,11 +41,18 @@ Or use the canonical launcher:
 curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/install.sh | bash
 ```
 
-If you still hit stale cached versions, use this cache-busting command:
+If you still hit stale cached versions from `/main`, use this cache-busting command (this is now the most reliable form):
 
 ```bash
-COMMIT_SHA="$(curl -fsSL -H \"Accept: application/vnd.github+json\" -H \"User-Agent: keynote-bootstrap-installer\" https://api.github.com/repos/gmcgrath86/5760_2160_keynote/commits/main | perl -ne 'if ( /\"sha\":\"([0-9a-f]{40})\"/ ) { print $1; exit }')"
-curl -fsSL \"https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/${COMMIT_SHA}/scripts/bootstrap.sh\" | bash
+LATEST_SHA="$(git ls-remote https://github.com/gmcgrath86/5760_2160_keynote.git HEAD | awk '{print $1}')"
+curl -fsSL "https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/$LATEST_SHA/scripts/bootstrap.sh" | bash
+```
+
+If `git` is unavailable on the machine, use this API fallback:
+
+```bash
+LATEST_SHA="$(curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: keynote-bootstrap-installer' https://api.github.com/repos/gmcgrath86/5760_2160_keynote/commits/main | grep -oE '\"sha\":\"[0-9a-f]{40}\"' | head -n1 | cut -d'\"' -f4)"
+curl -fsSL "https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/$LATEST_SHA/scripts/bootstrap.sh" | bash
 ```
 
 Both are equivalent. They now install all dependencies automatically, including:
@@ -100,6 +107,7 @@ After creating a new GitHub repo:
 ```bash
 git init
 git add init.lua scripts/bootstrap.sh README.md
+
 git commit -m "Add production-ready Keynote Hammerspoon controller"
 git remote add origin https://github.com/<ORG>/<REPO>.git
 git branch -M main
