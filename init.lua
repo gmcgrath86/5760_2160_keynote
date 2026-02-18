@@ -191,10 +191,11 @@ local function isLikelySlideWindowFrame(frame)
   if not frame then
     return false
   end
+  local wideEnough = frame.w >= (CONFIG.slideDisplayWidth - CONFIG.slidePanelMinWidth * 0.4)
+  local tallEnough = frame.h >= (CONFIG.slideDisplayHeight - CONFIG.slideDisplayTolerance * 2)
   return isLikelyAspect(frame, CONFIG.slideDisplayWidth, CONFIG.slideDisplayHeight, CONFIG.slideAspectTolerance * 1.8)
     or isLikelyAspect(frame, CONFIG.slideSpanWidth, CONFIG.slideSpanHeight, CONFIG.slideAspectTolerance * 1.8)
-    or frame.w >= (CONFIG.slideDisplayWidth - CONFIG.slidePanelMinWidth * 0.4)
-      and frame.h >= (CONFIG.slideDisplayHeight - CONFIG.slideDisplayTolerance * 2)
+    or (wideEnough and tallEnough)
 end
 
 local function isSlidePanelFrame(frame)
