@@ -71,6 +71,15 @@ ipconfig getifaddr en0
 ipconfig getifaddr en1
 ```
 
+### Temporary troubleshooting snippet (until final flip fix)
+
+Run this command on the operator Mac to capture the exact role-assignment logs during playback/tests:
+
+```bash
+tail -n 220 ~/Library/Logs/Hammerspoon/Hammerspoon.log \
+  | rg -E "Detected screens|Using configured canvas|Screen roles|Using stitched|Selected slide window|Selected notes window|Could not resolve|Could not|Window after seat"
+```
+
 4. Smoke-test endpoints:
 
 ```bash
