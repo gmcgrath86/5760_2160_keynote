@@ -76,8 +76,13 @@ ipconfig getifaddr en1
 Run this command on the operator Mac to capture the exact role-assignment logs during playback/tests:
 
 ```bash
-tail -n 220 ~/Library/Logs/Hammerspoon/Hammerspoon.log \
-  | rg -E "Detected screens|Using configured canvas|Screen roles|Using stitched|Selected slide window|Selected notes window|Could not resolve|Could not|Window after seat"
+if command -v rg >/dev/null 2>&1; then
+  tail -n 220 ~/Library/Logs/Hammerspoon/Hammerspoon.log \
+    | rg -E "Detected screens|Using configured canvas|Screen roles|Using stitched|Selected slide window|Selected notes window|Could not resolve|Could not|Window after seat"
+else
+  tail -n 220 ~/Library/Logs/Hammerspoon/Hammerspoon.log \
+    | grep -E "Detected screens|Using configured canvas|Screen roles|Using stitched|Selected slide window|Selected notes window|Could not resolve|Could not|Window after seat"
+fi
 ```
 
 4. Smoke-test endpoints:
