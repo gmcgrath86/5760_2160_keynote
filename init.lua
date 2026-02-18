@@ -12,6 +12,8 @@ local CONFIG = {
   hotkeySide = "left",
   playShortcut = { mods = { "alt", "cmd" }, key = "p" },
   showAlerts = false,
+  hotkeyFeedback = true,
+  hotkeyFeedbackSeconds = 0.85,
   logLevel = "info",
 
   -- Screen role matching
@@ -55,6 +57,20 @@ local function maybeAlert(message)
   if CONFIG.showAlerts then
     hs.alert.show(message, 0.8)
   end
+end
+
+local function hotkeyAlert(message, isError)
+  if not CONFIG.hotkeyFeedback then
+    return
+  end
+
+  local text = message
+  if isError then
+    hs.alert.show("Keynote control error: " .. tostring(text), CONFIG.hotkeyFeedbackSeconds)
+    return
+  end
+
+  hs.alert.show("Keynote: " .. tostring(text), CONFIG.hotkeyFeedbackSeconds)
 end
 
 local function frameToString(frame)
@@ -904,8 +920,17 @@ end
 startHTTPServer()
 
 hs.hotkey.bind({ "cmd", "alt", "ctrl" }, "k", function()
-  local status, body = startSlideshowAndSeat(CONFIG.hotkeySide, "start")
-  if status ~= 200 then
-    maybeAlert("Keynote control: " .. body)
+  log.i("Hotkey pressed: CMD+ALT+CTRL+K")
+  local ok, status, body = pcall(startSlideshowAndSeat, CONFIG.hotkeySide, "start")
+  if not ok then
+    local err = tostring(status)
+    log.e("Hotkey execution error: " .. err)
+    hotkeyAlert(err, true)
+    return
+  end
+  if status == 200 then
+    hotkeyAlert("started and seated")
+  else
+    hotkeyAlert("error: " .. tostring(body), true)
   end
 end)

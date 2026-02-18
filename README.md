@@ -22,6 +22,7 @@ Production-ready Hammerspoon control for one-button Keynote presentation control
   - Falls back to leftmost/rightmost 2880×2160 panel selection
 - Places slideshow window to 5760×2160 target span and notes to 1920×1080 target
 - Adds hotkey `⌘⌥⌃K` (defaults to the left/start flow)
+- Hotkey feedback is enabled by default to confirm execution in-cockpit.
 - Sends structured plain-text HTTP responses with logs for endpoint hit, screen roles, and frame placement
 
 ## One-shot install (blank machine ready)
@@ -89,3 +90,4 @@ curl http://MAC_IP:8765/keynote/stop
 - `notesWindowRequired = true` by default in `init.lua`.
 - `/keynote/seat?side=...` reuses existing playback and only repositions windows.
 - If your workflow intentionally skips notes window handling, set `notesWindowRequired = false`.
+- Set `hotkeyFeedback = false` in `init.lua` to suppress hotkey on-screen messages.
