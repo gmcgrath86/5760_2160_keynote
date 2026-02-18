@@ -233,6 +233,14 @@ ensure_hammerspoon() {
 
   if [ -d "$HAMMERSPOON_APP" ]; then
     log "Hammerspoon already present."
+    if has_cmd brew; then
+      if brew ls --cask hammerspoon >/dev/null 2>&1; then
+        log "Checking for Hammerspoon updates via Homebrew."
+        if ! brew upgrade --cask hammerspoon; then
+          log "Hammerspoon upgrade check failed (continuing with existing version)."
+        fi
+      fi
+    fi
     return
   fi
 
