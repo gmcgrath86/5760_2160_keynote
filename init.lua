@@ -31,6 +31,28 @@ local CONFIG = {
   slideDisplayTolerance = 16,
   notesDisplayTolerance = 20,
   notesWindowRequired = true,
+  notesDisplayNameHints = {
+    "og-us-5000",
+    "og us 5000",
+  },
+  canvasDisplayNameHints = {
+    "switchresx4",
+    "e2-01",
+  },
+  canvasLeftDisplayNames = {
+    "switchresx4 - e2-01 (2)",
+    "e2-01 (2)",
+    "switchresx4 (2)",
+    "(2)",
+  },
+  canvasRightDisplayNames = {
+    "switchresx4 - e2-01 (1)",
+    "e2-01 (1)",
+    "switchresx4 (1)",
+    "(1)",
+  },
+  canvasLeftPanelIndex = 2,
+  canvasRightPanelIndex = 1,
 
   -- Delays and timing
   activateDelay = 0.20,
@@ -101,6 +123,46 @@ local function parsePath(rawPath)
     path = path:sub(1, -2)
   end
   return path or rawPath, parseQueryString(queryString or "")
+end
+
+local function screenDisplayName(screen)
+  if not screen then
+    return ""
+  end
+
+  local ok, name = pcall(function()
+    return screen:name()
+  end)
+  if not ok or not name then
+    return ""
+  end
+  return name
+end
+
+local function screenNameMatches(screen, patterns)
+  local lowerName = string.lower(screenDisplayName(screen))
+  for _, rawPattern in ipairs(patterns or {}) do
+    local pattern = string.lower(tostring(rawPattern or ""))
+    if pattern ~= "" and lowerName:find(pattern, 1, true) ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
+local function screenPanelIndexFromName(screen)
+  local name = string.lower(screenDisplayName(screen))
+  local match = name:match("%((%d+)%)%s*$")
+  return match and tonumber(match) or nil
+end
+
+local function findScreenByNamePatterns(screens, patterns)
+  for _, screen in ipairs(screens) do
+    if screenNameMatches(screen, patterns) then
+      return screen
+    end
+  end
+  return nil
 end
 
 local function normalizeSide(side)
@@ -205,6 +267,67 @@ local function isLikelySlideWindowFrame(frame)
     or (wideEnough and tallEnough)
 end
 
+local function isLikelyCanvasPanel(screen)
+  local frame = safeScreenFrame(screen)
+  if not frame then
+    return false
+  end
+  return isLikelySlideWindowFrame(frame) or isSlidePanelFrame(frame)
+end
+
+local function findConfiguredCanvasPair(screens)
+  local leftCandidate
+  local rightCandidate
+  local fallbackLeft
+  local fallbackRight
+
+  for _, screen in ipairs(screens) do
+    if not isLikelyCanvasPanel(screen) then
+      goto continue
+    end
+
+    if not leftCandidate and screenNameMatches(screen, CONFIG.canvasLeftDisplayNames) then
+      leftCandidate = screen
+    end
+
+    if not rightCandidate and screenNameMatches(screen, CONFIG.canvasRightDisplayNames) then
+      rightCandidate = screen
+    end
+
+    local panelIndex = screenPanelIndexFromName(screen)
+    if panelIndex == CONFIG.canvasLeftPanelIndex and not leftCandidate then
+      leftCandidate = screen
+    end
+
+    if panelIndex == CONFIG.canvasRightPanelIndex and not rightCandidate then
+      rightCandidate = screen
+    end
+
+    if screenNameMatches(screen, CONFIG.canvasDisplayNameHints) then
+      if not fallbackLeft then
+        fallbackLeft = screen
+      else
+        if not fallbackRight then
+          fallbackRight = screen
+        end
+      end
+    end
+    if leftCandidate and rightCandidate then
+      break
+    end
+    ::continue::
+  end
+
+  if not fallbackLeft and leftCandidate then
+    fallbackLeft = leftCandidate
+  end
+  if not fallbackRight and rightCandidate then
+    fallbackRight = rightCandidate
+  end
+
+  return leftCandidate or fallbackLeft, rightCandidate or fallbackRight
+end
+
 local function isSlidePanelFrame(frame)
   return frame
     and frame.w >= CONFIG.slidePanelMinWidth
@@ -249,7 +372,15 @@ end
 local function logScreenList(label, screens)
   local seen = {}
   for _, screen in ipairs(screens) do
-    table.insert(seen, safeScreenFingerprint(screen))
+    local frame = safeScreenFrame(screen)
+    local name = screenDisplayName(screen)
+    local item
+    if frame then
+      item = string.format("%s (%s)", name, frameToStringShort(frame))
+    else
+      item = string.format("%s (no-frame)", name ~= "" and name or "Unknown")
+    end
+    table.insert(seen, item)
   end
   if #seen == 0 then
     log.i(string.format("%s: none", label))
@@ -440,6 +571,21 @@ local function pushIfMissing(list, screen, seen)
 end
 
 local function resolveSlideScreens(side, screens, halfCanvasCandidates, fullCanvasCandidates)
+  local configuredLeft, configuredRight = findConfiguredCanvasPair(screens)
+  if configuredLeft or configuredRight then
+    local chosenSlide = (side == "left") and configuredLeft or configuredRight
+    local chosenAlternate = (side == "left") and configuredRight or configuredLeft
+    if chosenSlide then
+      log.i(string.format(
+        "Using configured canvas names/indices for side=%s -> slide=%s alternate=%s",
+        side,
+        safeScreenFingerprint(chosenSlide),
+        safeScreenFingerprint(chosenAlternate)
+      ))
+      return chosenSlide, chosenAlternate, nil
+    end
+  end
+
   local useLeftSide = (side == "left")
 
   if #fullCanvasCandidates >= 1 then
@@ -512,6 +658,14 @@ local function resolveSlideScreens(side, screens, halfCanvasCandidates, fullCanv
 end
 
 local function resolveNotesScreen(screens, notesCandidates, slideScreen)
+  local configuredNotesScreen = findScreenByNamePatterns(screens, CONFIG.notesDisplayNameHints)
+  if configuredNotesScreen then
+    if configuredNotesScreen ~= slideScreen then
+      return configuredNotesScreen
+    end
+    log.w("Configured notes display matches slide target; falling back to geometry candidates")
+  end
+
   if #notesCandidates >= 1 then
     for _, notesScreen in ipairs(notesCandidates) do
       if notesScreen ~= slideScreen then
