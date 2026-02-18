@@ -41,7 +41,8 @@ The installer now:
 
 - Resolves the latest commit SHA (when possible) for cache-safe bootstrap delivery
 - Falls back to `main` branch if commit resolution fails
-- Installs Hammerspoon if missing (Homebrew first, then GitHub release fallback)
+- Checks for Homebrew and installs it if missing
+- Checks/installs Hammerspoon (`brew` first, then GitHub release fallback)
 - Installs `~/.hammerspoon/init.lua` and restarts Hammerspoon
 
 If you prefer to keep a fixed versioned URL (for air-gapped workflows):

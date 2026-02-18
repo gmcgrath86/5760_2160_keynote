@@ -93,6 +93,7 @@ copy_to_applications() {
 }
 
 install_homebrew() {
+  refresh_brew_cmd
   if has_cmd brew; then
     return 0
   fi
@@ -228,6 +229,8 @@ install_by_github_release() {
 }
 
 ensure_hammerspoon() {
+  refresh_brew_cmd
+
   if [ -d "$HAMMERSPOON_APP" ]; then
     log "Hammerspoon already present."
     return
