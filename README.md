@@ -76,13 +76,27 @@ ipconfig getifaddr en1
 Run this command on the operator Mac to capture the exact role-assignment logs during playback/tests:
 
 ```bash
-LOG_FILE="$(find ~/Library/Logs -maxdepth 4 -type f -iname 'Hammerspoon.log' | head -n 1)"
-if [ -z "$LOG_FILE" ]; then
-  LOG_FILE="$(find ~/Library -maxdepth 4 -type f -iname '*Hammerspoon*.log' | head -n 1)"
-fi
+LOG_CANDIDATES=(
+  "$HOME/Library/Logs/Hammerspoon/Hammerspoon.log"
+  "$HOME/Library/Logs/com.hammerspoon.Hammerspoon/Hammerspoon.log"
+  "$HOME/Library/Application Support/Hammerspoon/Console.log"
+  "$HOME/Library/Application Support/Hammerspoon/Hammerspoon.log"
+  "$HOME/Library/Containers/org.hammerspoon.Hammerspoon/Data/Library/Logs/Hammerspoon/Hammerspoon.log"
+)
 
-if [ -z "$LOG_FILE" ]; then
+LOG_FILE=""
+for candidate in "${LOG_CANDIDATES[@]}"; do
+  if [ -r "$candidate" ]; then
+    LOG_FILE="$candidate"
+    break
+  fi
+done
+
+  if [ -z "$LOG_FILE" ]; then
   echo "Could not locate Hammerspoon log file; ensure Hammerspoon has launched at least once."
+  echo "Tip: grant Terminal Full Disk Access and rerun, or run this from the Hammerspoon Console:"
+  echo "  hs.logger.new('keynote-http', 'info'):i('debug')"
+  echo "and then check: ~/Library/Logs/Hammerspoon/Hammerspoon.log (if generated)"
 else
   echo "Reading: $LOG_FILE"
   if command -v rg >/dev/null 2>&1; then
