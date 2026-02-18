@@ -126,21 +126,50 @@ local function frameToStringShort(frame)
   return string.format("%.0fx%.0f @ (%.0f,%.0f)", frame.w, frame.h, frame.x, frame.y)
 end
 
-local function frameFor(screenOrFrame)
+local function safeScreenFrame(screenOrFrame)
   if not screenOrFrame then
-    return nil
+    return nil, "nil screen"
   end
-  if type(screenOrFrame) ~= "table" and type(screenOrFrame) ~= "userdata" then
-    return nil
+
+  if type(screenOrFrame) == "table" then
+    if screenOrFrame.x == nil or screenOrFrame.y == nil or screenOrFrame.w == nil or screenOrFrame.h == nil then
+      return nil, "invalid frame table"
+    end
+    return screenOrFrame, nil
   end
-  if type(screenOrFrame.fullFrame) == "function" then
-    return screenOrFrame:fullFrame()
+
+  if type(screenOrFrame) == "userdata" and type(screenOrFrame.fullFrame) == "function" then
+    local ok, frame = pcall(screenOrFrame.fullFrame, screenOrFrame)
+    if not ok then
+      return nil, "fullFrame call failed"
+    end
+    if type(frame) ~= "table" then
+      return nil, "invalid frame return"
+    end
+    if frame.x == nil or frame.y == nil or frame.w == nil or frame.h == nil then
+      return nil, "invalid frame"
+    end
+    return frame, nil
   end
-  local frame = screenOrFrame
-  if frame.x == nil or frame.y == nil or frame.w == nil or frame.h == nil then
-    return nil
-  end
+
+  return nil, "unsupported frame source"
+end
+
+local function frameFor(screenOrFrame)
+  local frame = safeScreenFrame(screenOrFrame)
   return frame
+end
+
+local function safeScreenFingerprint(screen)
+  local ok, frame = pcall(frameFor, screen)
+  if not ok or not frame then
+    return "n/a"
+  end
+  return string.format("x=%.0f y=%.0f w=%.0f h=%.0f", frame.x, frame.y, frame.w, frame.h)
+end
+
+local function screenFingerprint(screen)
+  return safeScreenFingerprint(screen)
 end
 
 local function isLikelyAspect(frame, targetW, targetH, tolerance)
@@ -160,7 +189,15 @@ end
 local function allScreensLeftToRight()
   local screens = hs.screen.allScreens()
   table.sort(screens, function(a, b)
-    return a:fullFrame().x < b:fullFrame().x
+    local frameA = safeScreenFrame(a)
+    local frameB = safeScreenFrame(b)
+    if not frameA then
+      return false
+    end
+    if not frameB then
+      return true
+    end
+    return frameA.x < frameB.x
   end)
   return screens
 end
@@ -171,9 +208,13 @@ local function logScreens(screens)
     if index > CONFIG.screenLogLimit then
       break
     end
-    local frame = screen:fullFrame()
+    local frame = safeScreenFrame(screen)
     local name = screen:name() or "Unknown"
-    table.insert(seen, string.format("%s: %s", name, frameToStringShort(frame)))
+    if frame then
+      table.insert(seen, string.format("%s: %s", name, frameToStringShort(frame)))
+    else
+      table.insert(seen, string.format("%s: n/a", name))
+    end
   end
   log.i("Detected screens: " .. table.concat(seen, " | "))
   return screens
@@ -182,7 +223,7 @@ end
 local function logScreenList(label, screens)
   local seen = {}
   for _, screen in ipairs(screens) do
-    table.insert(seen, screenFingerprint(screen))
+    table.insert(seen, safeScreenFingerprint(screen))
   end
   if #seen == 0 then
     log.i(string.format("%s: none", label))
@@ -205,8 +246,11 @@ local function resolveStitchedFrame(halfCandidates)
   end
 
   local function pairScore(left, right)
-    local leftFrame = left:fullFrame()
-    local rightFrame = right:fullFrame()
+    local leftFrame = safeScreenFrame(left)
+    local rightFrame = safeScreenFrame(right)
+    if not leftFrame or not rightFrame then
+      return nil
+    end
     local y = math.min(leftFrame.y, rightFrame.y)
     local h = math.max(leftFrame.h, rightFrame.h)
     local x = math.min(leftFrame.x, rightFrame.x)
@@ -262,8 +306,11 @@ local function resolveStitchedFrame(halfCandidates)
 
   for i = 1, #halfCandidates do
     for j = i + 1, #halfCandidates do
-      local frameI = halfCandidates[i]:fullFrame()
-      local frameJ = halfCandidates[j]:fullFrame()
+      local frameI = safeScreenFrame(halfCandidates[i])
+      local frameJ = safeScreenFrame(halfCandidates[j])
+      if not frameI or not frameJ then
+        goto continue_frames
+      end
 
       local orderedLeft, orderedRight
       if frameI.x <= frameJ.x then
@@ -275,8 +322,11 @@ local function resolveStitchedFrame(halfCandidates)
       end
 
       local candidateScore = pairScore(orderedLeft, orderedRight)
-      local frameLeft = orderedLeft:fullFrame()
-      local frameRight = orderedRight:fullFrame()
+      local frameLeft = safeScreenFrame(orderedLeft)
+      local frameRight = safeScreenFrame(orderedRight)
+      if not frameLeft or not frameRight then
+        goto continue_frames
+      end
 
       local yDelta = absValue(frameLeft.y - frameRight.y)
       if yDelta <= CONFIG.slideDisplayTolerance and candidateScore then
@@ -301,6 +351,7 @@ local function resolveStitchedFrame(halfCandidates)
           end
         end
       end
+      ::continue_frames::
     end
   end
 
@@ -313,9 +364,13 @@ end
 local function sortScreensByArea(screens)
   local withArea = {}
   for _, screen in ipairs(screens) do
-    local frame = screen:fullFrame()
+    local frame = safeScreenFrame(screen)
+    if not frame then
+      goto continue_area
+    end
     local area = frame.w * frame.h
     table.insert(withArea, { screen = screen, area = area })
+    ::continue_area::
   end
   table.sort(withArea, function(a, b)
     return a.area > b.area
@@ -333,7 +388,11 @@ local function candidateScreens(screens)
   local notesCandidates = {}
 
   for _, screen in ipairs(screens) do
-    local frame = screen:fullFrame()
+    local frame = safeScreenFrame(screen)
+    if not frame then
+      log.w("Skipping screen with invalid frame during role classification")
+      goto continue_candidate
+    end
     if frameMatchesTarget(frame, CONFIG.slideSpanWidth, CONFIG.slideSpanHeight, CONFIG.slideSpanTolerance) then
       table.insert(fullCanvasCandidates, screen)
     end
@@ -343,20 +402,10 @@ local function candidateScreens(screens)
     if frameMatchesTarget(frame, CONFIG.notesDisplayWidth, CONFIG.notesDisplayHeight, CONFIG.notesDisplayTolerance) then
       table.insert(notesCandidates, screen)
     end
+    ::continue_candidate::
   end
 
   return fullCanvasCandidates, halfCanvasCandidates, notesCandidates
-end
-
-local function screenFingerprint(screen)
-  local frame = frameFor(screen)
-  if not frame then
-    return "n/a"
-  end
-  if type(frame) ~= "table" or frame.x == nil or frame.y == nil or frame.w == nil or frame.h == nil then
-    return "n/a"
-  end
-  return string.format("x=%.0f y=%.0f w=%.0f h=%.0f", frame.x, frame.y, frame.w, frame.h)
 end
 
 local function pushIfMissing(list, screen, seen)
@@ -385,10 +434,14 @@ local function resolveSlideScreens(side, screens, halfCanvasCandidates, fullCanv
   end
 
   for _, screen in ipairs(screens) do
-    local frame = screen:fullFrame()
+    local frame = safeScreenFrame(screen)
+    if not frame then
+      goto continue_stitched
+    end
     if isSlidePanelFrame(frame) and not frameMatchesTarget(frame, CONFIG.notesDisplayWidth, CONFIG.notesDisplayHeight, CONFIG.notesDisplayTolerance * 2) then
       pushIfMissing(stitchedCandidates, screen, stitchedSeen)
     end
+    ::continue_stitched::
   end
 
   local stitchedFrame, stitchedLeft, stitchedRight = resolveStitchedFrame(halfCanvasCandidates)
@@ -458,8 +511,8 @@ local function screensByRole(side)
 
   local targetFrames = {
     side = side,
-    slide = screenFingerprint(slideFrame or slideScreen),
-    notes = notesScreen and screenFingerprint(notesScreen) or "n/a",
+    slide = safeScreenFingerprint(slideFrame or slideScreen),
+    notes = notesScreen and safeScreenFingerprint(notesScreen) or "n/a",
     fullCanvasCount = #fullCanvasCandidates,
     halfCanvasCount = #halfCanvasCandidates,
     notesCandidates = #notesCandidates,
@@ -479,7 +532,7 @@ end
 
 local function describeRoleFrames(side, slideTarget, notesScreen)
   local slideFrame = frameFor(slideTarget)
-  local notesFrame = notesScreen and notesScreen:fullFrame()
+  local notesFrame = safeScreenFrame(notesScreen)
   log.i(string.format(
     "Resolved role: side=%s slide=%s notes=%s",
     side,
@@ -772,7 +825,11 @@ local function startSlideshowAndSeat(side, mode)
   describeRoleFrames(side, slideTarget or slideScreen, notesScreen)
 
   local targetFrame = frameFor(slideTarget or slideScreen)
-  local notesFrame = notesScreen and notesScreen:fullFrame()
+  if not targetFrame then
+    return 500, "Could not resolve slide target frame"
+  end
+
+  local notesFrame = safeScreenFrame(notesScreen)
   local app, appErr
   local includeExisting = (mode == "seat")
   local preferredWindowId = nil
