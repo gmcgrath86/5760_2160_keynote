@@ -24,7 +24,7 @@ local CONFIG = {
   notesDisplayHeight = 1080,
   slideDisplayTolerance = 16,
   notesDisplayTolerance = 20,
-  notesWindowRequired = false,
+  notesWindowRequired = true,
 
   -- Delays and timing
   activateDelay = 0.20,

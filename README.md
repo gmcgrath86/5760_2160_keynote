@@ -83,5 +83,5 @@ curl http://MAC_IP:8765/keynote/stop
 
 ## Notes
 
-- `notesWindowRequired = false` is configured by default so notes-window anomalies do not fail the slide start.
-- Set to `true` in `init.lua` if you want `/keynote/left|right` to return a failure when notes window is missing.
+- `notesWindowRequired` is set to `true` so `/keynote/left|right` returns an error if a notes window is not found.
+- If your workflow intentionally omits notes, set `notesWindowRequired = false` in `init.lua`.
