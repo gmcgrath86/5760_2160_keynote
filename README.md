@@ -1,135 +1,116 @@
-# Keynote Hammerspoon Show Control
+# Keynote Dual-Canvas Hammerspoon Hotkey
 
-Production-ready Hammerspoon control for one-button Keynote presentation control on a 5760×2160 stitched output with separate 1920×1080 notes output.
+This repository packages a working Hammerspoon setup for one-button Keynote control on:
 
-## Files
+- two `2880x2160` displays used as one `5760x2160` slide canvas
+- one `1920x1080` notes display
 
-- `init.lua` — Hammerspoon configuration loaded from `~/.hammerspoon/init.lua`
-- `scripts/bootstrap.sh` — one-shot installer for dependencies, config, and Hammerspoon restart
-- `install.sh` — optional entrypoint that resolves a pinned bootstrap commit
+The default hotkey is:
 
-## What it does
+- `ctrl` + `option` + `cmd` + `k`
 
-- Starts an HTTP server on port `8765` with:
-  - `GET /keynote/left` → launch/activate Keynote, start Play in Window, seat slideshow
-  - `GET /keynote/right` → launch/activate Keynote, start Play in Window, seat slideshow
-  - `GET /keynote/seat?side=left|right` → idempotent seat on existing playback
-  - `GET /keynote/stop` → stop playback with Escape
-  - `GET /keynote/health` → returns `OK` when controller responds
-- Uses `hs.screen` full-frame geometry and automatic layout detection:
-  - Detects a 5760×2160 full canvas when present
-  - Detects stitched 2880×2160 side-by-side outputs and uses the full span for slideshow
-  - Falls back to leftmost/rightmost 2880×2160 panel selection
-- Includes fixed-name preference for known displays:
-  - `OG-US-5000` is treated as notes output
-  - `SwitchResX4 - E2-01 (2)` is treated as the far-left 2880×2160 slide output
-  - `SwitchResX4 - E2-01 (1)` is treated as the far-right 2880×2160 slide output
-- Places slideshow window to 5760×2160 target span and notes to 1920×1080 target
-- Adds hotkey `⌘⌥⌃K` (defaults to the left/start flow)
-- Hotkey feedback is enabled by default to confirm execution in-cockpit.
-- Sends structured plain-text HTTP responses with logs for endpoint hit, screen roles, and frame placement
+## What It Does
 
-## One-shot install (blank machine ready)
+When the hotkey runs, it:
 
-Pick one:
+1. Focuses Keynote.
+2. Sends `Escape` twice to exit any active play or presenter state.
+3. Restarts playback in windowed mode.
+4. Ensures the presenter display window is shown.
+5. Seats the slide window across the full `5760x2160` stitched canvas.
+6. Seats the presenter window on the separate notes display.
+
+The module supports both Keynote menu layouts:
+
+- `Play > Play in Window`
+- `Play > In Window`, then `Play > Play Slideshow`
+
+## Repository Files
+
+- `init.lua`: installable `~/.hammerspoon/init.lua`
+- `keynote_dual_canvas.lua`: reusable window-placement module
+- `install.sh`: one-line bootstrap entrypoint
+- `scripts/bootstrap.sh`: installer that downloads the config and module
+- `INSTALL_ON_ANOTHER_MAC.md`: manual setup checklist
+- `init.lua.export.example`: alternate config example for handoff bundles
+- `export_keynote_dual_canvas.sh`: creates a zip bundle for offline transfer
+
+## Quick Install On Another Mac
+
+Use the repository bootstrap:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/install.sh | bash
 ```
 
-Direct latest `main` bootstrap (no commit lookup):
+The bootstrap will:
+
+- install a user-local Homebrew copy if `brew` is missing
+- install Hammerspoon into `~/Applications`
+- copy `init.lua` and `keynote_dual_canvas.lua` into `~/.hammerspoon`
+- launch or restart Hammerspoon
+
+## Manual Install
+
+1. Install Hammerspoon.
+2. Copy `init.lua` to `~/.hammerspoon/init.lua`.
+3. Copy `keynote_dual_canvas.lua` to `~/.hammerspoon/keynote_dual_canvas.lua`.
+4. Open Hammerspoon and grant permissions.
+5. Reload Hammerspoon config.
+6. Press `ctrl` + `option` + `cmd` + `k`.
+
+## Required macOS Permissions
+
+Grant these to Hammerspoon:
+
+- Accessibility
+- Automation (Keynote), if prompted
+- Screen Recording
+
+Without Accessibility, the hotkey bind is intentionally skipped so Hammerspoon can still start cleanly.
+
+## Machine-Specific Configuration
+
+The default config in `init.lua` assumes these display names:
+
+- `SwitchResX4 - Desktop (1)`
+- `SwitchResX4 - Desktop (2)`
+- `SwitchResX4 - Desktop (3)`
+
+If another machine uses different names, edit:
+
+- `playScreenNames`
+- `notesScreenName`
+
+You can also set a fixed deck path by uncommenting:
+
+- `deckPath`
+- `openDeckOnHotkey`
+
+## Known Behavior
+
+- The slide window is placed using each display's `fullFrame()`, so it can span the exact `5760x2160` canvas.
+- The presenter window is still a normal macOS window in Keynote's "Presenter Display in Window" mode.
+- If the menu bar is visible on the notes display, macOS may clamp that window to the visible frame, for example `1920x1050` instead of `1920x1080`.
+- If you need full-height notes, enable menu bar auto-hide on the notes display.
+
+## If Keynote Menu Labels Differ
+
+If a future Keynote build changes the menu labels again, update:
+
+- `playMenuPaths`
+- `presenterMenuPaths`
+
+in `keynote_dual_canvas.lua`.
+
+## Offline Export
+
+To build a zip bundle for a machine without direct GitHub access:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/main/scripts/bootstrap.sh | bash
+./export_keynote_dual_canvas.sh
 ```
 
-The installer performs:
+The bundle is written to:
 
-- Homebrew check/install if missing
-- Hammerspoon install/update (`brew` first, then GitHub release fallback)
-- `~/.hammerspoon/init.lua` deployment
-- Hammerspoon restart
-- Post-install health check against `http://127.0.0.1:8765/keynote/health`
-- Final console summary with endpoint + hotkey reminder
-
-If you prefer a fixed SHA URL:
-
-```bash
-LATEST_SHA="$(git ls-remote https://github.com/gmcgrath86/5760_2160_keynote.git HEAD | awk '{print $1}')"
-curl -fsSL "https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/$LATEST_SHA/scripts/bootstrap.sh" | bash
-```
-
-## Operator quick start
-
-1. Ensure Hammerspoon has `Accessibility` + `Input Monitoring` in
-   `System Settings → Privacy & Security`.
-2. Run one of the one-shot commands.
-3. Find the controller IP:
-
-```bash
-ipconfig getifaddr en0
-ipconfig getifaddr en1
-```
-
-### Temporary troubleshooting snippet (until final flip fix)
-
-Run this command on the operator Mac to capture the exact role-assignment logs during playback/tests:
-
-```bash
-LOG_CANDIDATES=(
-  "$HOME/Library/Logs/Hammerspoon/Hammerspoon.log"
-  "$HOME/Library/Logs/com.hammerspoon.Hammerspoon/Hammerspoon.log"
-  "$HOME/Library/Application Support/Hammerspoon/Console.log"
-  "$HOME/Library/Application Support/Hammerspoon/Hammerspoon.log"
-  "$HOME/Library/Containers/org.hammerspoon.Hammerspoon/Data/Library/Logs/Hammerspoon/Hammerspoon.log"
-)
-
-LOG_FILE=""
-for candidate in "${LOG_CANDIDATES[@]}"; do
-  if [ -r "$candidate" ]; then
-    LOG_FILE="$candidate"
-    break
-  fi
-done
-
-  if [ -z "$LOG_FILE" ]; then
-  echo "Could not locate Hammerspoon log file; ensure Hammerspoon has launched at least once."
-  echo "Tip: grant Terminal Full Disk Access and rerun, or run this from the Hammerspoon Console:"
-  echo "  hs.logger.new('keynote-http', 'info'):i('debug')"
-  echo "and then check: ~/Library/Logs/Hammerspoon/Hammerspoon.log (if generated)"
-else
-  echo "Reading: $LOG_FILE"
-  if command -v rg >/dev/null 2>&1; then
-    tail -n 220 "$LOG_FILE" \
-      | rg -E "Detected screens|Using configured canvas|Screen roles|Using stitched|Selected slide window|Selected notes window|Could not resolve|Could not|Window after seat"
-  else
-    tail -n 220 "$LOG_FILE" \
-      | grep -E "Detected screens|Using configured canvas|Screen roles|Using stitched|Selected slide window|Selected notes window|Could not resolve|Could not|Window after seat"
-  fi
-fi
-```
-
-4. Smoke-test endpoints:
-
-```bash
-curl http://MAC_IP:8765/keynote/health
-curl http://MAC_IP:8765/keynote/left
-curl http://MAC_IP:8765/keynote/right
-curl "http://MAC_IP:8765/keynote/seat?side=left"
-curl http://MAC_IP:8765/keynote/stop
-```
-
-5. Configure Companion HTTP GET actions:
-
-- `http://MAC_IP:8765/keynote/left`
-- `http://MAC_IP:8765/keynote/right`
-- `http://MAC_IP:8765/keynote/stop`
-- Optional: `http://MAC_IP:8765/keynote/seat?side=left`
-- Optional: `http://MAC_IP:8765/keynote/seat?side=right`
-
-## Notes
-
-- `notesWindowRequired = true` by default in `init.lua`.
-- `/keynote/seat?side=...` reuses existing playback and only repositions windows.
-- If your workflow intentionally skips notes window handling, set `notesWindowRequired = false`.
-- Set `hotkeyFeedback = false` in `init.lua` to suppress hotkey on-screen messages.
+- `dist/keynote_dual_canvas_export.zip`

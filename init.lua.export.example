@@ -1,22 +1,21 @@
 require("hs.ipc")
 
-local home = os.getenv("HOME")
-
-package.path = package.path .. ";" .. home .. "/.hammerspoon/?.lua"
+-- Put keynote_dual_canvas.lua in ~/.hammerspoon/ on the destination Mac.
+package.path = package.path .. ";" .. os.getenv("HOME") .. "/.hammerspoon/?.lua"
 
 if hs.accessibilityState and hs.accessibilityState() then
   require("keynote_dual_canvas").bind({
     hotkeyMods = { "ctrl", "alt", "cmd" },
     hotkeyKey = "k",
 
-    -- Match the known SwitchResX display names for the production machine.
+    -- Update these names on the target machine if they differ.
     playScreenNames = {
       "SwitchResX4 - Desktop (1)",
       "SwitchResX4 - Desktop (2)",
     },
     notesScreenName = "SwitchResX4 - Desktop (3)",
 
-    -- Optional: uncomment to always reopen a specific deck before refresh.
+    -- Optional:
     -- deckPath = "/absolute/path/to/your/deck.key",
     -- openDeckOnHotkey = true,
   })
