@@ -29,12 +29,27 @@ local defaults = {
     afterPlay = 0.9,
     retry = 0.35,
   },
+  http = {
+    enabled = false,
+    bindAddress = nil,
+    port = 8765,
+    token = nil,
+    healthPath = "/keynote/health",
+    runPath = "/keynote/run",
+    stopPath = "/keynote/stop",
+  },
   maxPlacementRetries = 20,
   showAlerts = true,
 }
 
 M.config = nil
 M._hotkey = nil
+M._server = nil
+M._serverRetryTimer = nil
+M._runInFlight = false
+M._lastRun = nil
+
+local startServer
 
 local function deepcopy(value)
   if type(value) ~= "table" then
@@ -59,11 +74,55 @@ local function merge(dst, src)
   return dst
 end
 
+local function plainText(status, body)
+  return (body or "") .. "\n", status, { ["Content-Type"] = "text/plain; charset=utf-8" }
+end
+
+local function parseQueryString(queryString)
+  local out = {}
+  if not queryString or queryString == "" then
+    return out
+  end
+
+  for pair in string.gmatch(queryString, "([^&]+)") do
+    local key, value = pair:match("^([^=]+)=?(.*)$")
+    if key then
+      out[key] = value or ""
+    end
+  end
+
+  return out
+end
+
+local function parsePath(rawPath)
+  local path, queryString = (rawPath or ""):match("^([^?]*)%??(.*)$")
+  return path or rawPath or "", parseQueryString(queryString or "")
+end
+
 local function notify(cfg, msg)
   log.i(msg)
   if cfg.showAlerts then
     hs.alert.show(msg)
   end
+end
+
+local function authorizeRequest(cfg, query, headers)
+  local httpCfg = cfg.http or {}
+  local token = httpCfg.token
+  if not token or token == "" then
+    return true
+  end
+
+  if query.token == token then
+    return true
+  end
+
+  local auth = headers and (headers.Authorization or headers.authorization)
+  if auth == ("Bearer " .. token) then
+    return true
+  end
+
+  return false
 end
 
 local function screenName(screen)
@@ -346,6 +405,15 @@ local function ensurePresenterWindow(app, cfg)
 end
 
 local function placeWindowsWhenReady(app, cfg, playFrame, notesFrame, attempt, presenterRequested)
+  local function finish(ok, msg)
+    M._runInFlight = false
+    M._lastRun = {
+      ok = ok,
+      message = msg,
+      at = os.time(),
+    }
+  end
+
   local slidesWin, notesWin, wins = classifyWindows(app)
 
   if slidesWin and notesWin then
@@ -355,6 +423,7 @@ local function placeWindowsWhenReady(app, cfg, playFrame, notesFrame, attempt, p
     notesWin:raise()
     slidesWin:focus()
     notify(cfg, "Keynote windows placed")
+    finish(true, "Keynote windows placed")
     return
   end
 
@@ -371,6 +440,7 @@ local function placeWindowsWhenReady(app, cfg, playFrame, notesFrame, attempt, p
     local msg = "Keynote window placement timed out"
     log.e(msg .. "; windows seen: " .. titlesForDebug(wins))
     notify(cfg, msg)
+    finish(false, msg)
     return
   end
 
@@ -382,6 +452,11 @@ end
 
 function M.run()
   local cfg = M.config or deepcopy(defaults)
+  if M._runInFlight then
+    return false, "Keynote refresh already running"
+  end
+
+  M._runInFlight = true
   pcall(function()
     hs.window.animationDuration = 0
   end)
@@ -396,7 +471,9 @@ function M.run()
     notify(cfg, "Display mapping failed; check screen names")
     log.e("Resolved screens: left=" .. tostring(targets.left) .. " right=" .. tostring(targets.right) .. " notes=" .. tostring(targets.notes))
     log.e("Available screens: " .. table.concat(seen, " | "))
-    return
+    M._runInFlight = false
+    M._lastRun = { ok = false, message = "Display mapping failed; check screen names", at = os.time() }
+    return false, "Display mapping failed; check screen names"
   end
 
   log.i(string.format(
@@ -417,6 +494,8 @@ function M.run()
     app = keynoteApp(cfg) or app
     if not app then
       notify(cfg, "Keynote is not running")
+      M._runInFlight = false
+      M._lastRun = { ok = false, message = "Keynote is not running", at = os.time() }
       return
     end
 
@@ -432,6 +511,8 @@ function M.run()
       app = keynoteApp(cfg) or app
       if not app then
         notify(cfg, "Keynote disappeared before relaunch")
+        M._runInFlight = false
+        M._lastRun = { ok = false, message = "Keynote disappeared before relaunch", at = os.time() }
         return
       end
 
@@ -442,6 +523,8 @@ function M.run()
       if not played then
         notify(cfg, "Could not start Keynote with 'Play in Window'")
         log.e("Checked menu paths did not match; update playMenuPaths for your Keynote version")
+        M._runInFlight = false
+        M._lastRun = { ok = false, message = "Could not start Keynote with 'Play in Window'", at = os.time() }
         return
       end
       if type(playPath) == "table" then
@@ -456,6 +539,147 @@ function M.run()
       end)
     end)
   end)
+
+  return true, "Keynote refresh started"
+end
+
+function M.stop()
+  local cfg = M.config or deepcopy(defaults)
+  local app = keynoteApp(cfg)
+  if not app then
+    return false, "Keynote is not running"
+  end
+
+  app:activate(true)
+  sendEscape(app)
+  hs.timer.doAfter(0.12, function()
+    local currentApp = keynoteApp(cfg) or app
+    sendEscape(currentApp)
+  end)
+
+  M._runInFlight = false
+  M._lastRun = { ok = true, message = "Keynote stop requested", at = os.time() }
+  return true, "Keynote stop requested"
+end
+
+local function handleHttpRequest(method, rawPath, headers, _body)
+  local cfg = M.config or deepcopy(defaults)
+  local httpCfg = cfg.http or {}
+  local path, query = parsePath(rawPath)
+  local verb = string.upper(method or "GET")
+
+  if path == httpCfg.healthPath then
+    return plainText(200, "OK")
+  end
+
+  if path ~= httpCfg.runPath and path ~= httpCfg.stopPath then
+    return plainText(404, "Not Found")
+  end
+
+  if verb ~= "GET" and verb ~= "POST" then
+    return plainText(405, "Method Not Allowed")
+  end
+
+  if not authorizeRequest(cfg, query, headers or {}) then
+    return plainText(401, "Unauthorized")
+  end
+
+  if path == httpCfg.runPath then
+    local ok, msg = M.run()
+    if ok then
+      return plainText(202, msg)
+    end
+    return plainText(409, msg)
+  end
+
+  local ok, msg = M.stop()
+  if ok then
+    return plainText(202, msg)
+  end
+  return plainText(409, msg)
+end
+
+local function stopServer()
+  if M._serverRetryTimer then
+    M._serverRetryTimer:stop()
+    M._serverRetryTimer = nil
+  end
+
+  if not M._server then
+    return
+  end
+
+  pcall(function()
+    M._server:stop()
+  end)
+  M._server = nil
+end
+
+local function scheduleServerRetry(cfg)
+  if M._serverRetryTimer then
+    return
+  end
+
+  M._serverRetryTimer = hs.timer.doEvery(5, function()
+    local currentCfg = M.config or cfg
+    if not currentCfg or not currentCfg.http or not currentCfg.http.enabled then
+      if M._serverRetryTimer then
+        M._serverRetryTimer:stop()
+        M._serverRetryTimer = nil
+      end
+      return
+    end
+
+    if M._server then
+      return
+    end
+
+    log.i("Retrying HTTP trigger startup")
+    startServer(currentCfg)
+  end)
+end
+
+startServer = function(cfg)
+  local httpCfg = cfg.http or {}
+  if M._server then
+    stopServer()
+  end
+
+  if not httpCfg.enabled then
+    return
+  end
+
+  local server = hs.httpserver.new(false, false)
+  server:setPort(httpCfg.port)
+  server:setCallback(handleHttpRequest)
+
+  if httpCfg.bindAddress and httpCfg.bindAddress ~= "" and type(server.setInterface) == "function" then
+    local ok, err = pcall(function()
+      server:setInterface(httpCfg.bindAddress)
+    end)
+    if not ok then
+      log.w("Could not bind HTTP server to interface " .. tostring(httpCfg.bindAddress) .. ": " .. tostring(err))
+    end
+  end
+
+  local started = false
+  local ok, err = pcall(function()
+    started = server:start()
+  end)
+
+  if not ok or started == false then
+    log.w("HTTP trigger did not start yet on " .. tostring(httpCfg.bindAddress or "0.0.0.0") .. ":" .. tostring(httpCfg.port) .. ": " .. tostring(err or "start returned false"))
+    M._server = nil
+    scheduleServerRetry(cfg)
+    return
+  end
+
+  M._server = server
+  if M._serverRetryTimer then
+    M._serverRetryTimer:stop()
+    M._serverRetryTimer = nil
+  end
+  log.i("HTTP trigger listening on " .. tostring(httpCfg.bindAddress or "0.0.0.0") .. ":" .. tostring(httpCfg.port))
 end
 
 function M.bind(userConfig)
@@ -471,6 +695,7 @@ function M.bind(userConfig)
 
   M._hotkey = hs.hotkey.bind(M.config.hotkeyMods, M.config.hotkeyKey, M.run)
   log.i("Bound hotkey " .. table.concat(M.config.hotkeyMods, "+") .. "+" .. M.config.hotkeyKey)
+  startServer(M.config)
   return M
 end
 

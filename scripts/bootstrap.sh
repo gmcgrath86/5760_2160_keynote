@@ -5,6 +5,7 @@ BOOTSTRAP_REF="${KEYNOTE_BOOTSTRAP_REF:-main}"
 REPO_RAW_URL="https://raw.githubusercontent.com/gmcgrath86/5760_2160_keynote/${BOOTSTRAP_REF}"
 INIT_URL="${REPO_RAW_URL}/init.lua"
 MODULE_URL="${REPO_RAW_URL}/keynote_dual_canvas.lua"
+LAUNCH_AGENT_URL="${REPO_RAW_URL}/launchagents/local.hammerspoon.autostart.plist"
 TARGET_DIR="${HOME}/.hammerspoon"
 SYSTEM_HAMMERSPOON_APP="/Applications/Hammerspoon.app"
 USER_HAMMERSPOON_APP="${HOME}/Applications/Hammerspoon.app"
@@ -12,6 +13,8 @@ USER_HOMEBREW_PREFIX="${HOME}/homebrew"
 TMP_DIR="$(mktemp -d)"
 INIT_FILE="${TMP_DIR}/init.lua"
 MODULE_FILE="${TMP_DIR}/keynote_dual_canvas.lua"
+LAUNCH_AGENT_TEMPLATE_FILE="${TMP_DIR}/local.hammerspoon.autostart.plist"
+LAUNCH_AGENT_TARGET="${HOME}/Library/LaunchAgents/local.hammerspoon.autostart.plist"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 log() {
@@ -63,6 +66,7 @@ ensure_tmp_dir() {
     TMP_DIR="$(mktemp -d)"
     INIT_FILE="${TMP_DIR}/init.lua"
     MODULE_FILE="${TMP_DIR}/keynote_dual_canvas.lua"
+    LAUNCH_AGENT_TEMPLATE_FILE="${TMP_DIR}/local.hammerspoon.autostart.plist"
   fi
 }
 
@@ -78,6 +82,13 @@ download_repo_files() {
   curl -fsSL "$MODULE_URL" -o "$MODULE_FILE"
   if [ ! -s "$MODULE_FILE" ]; then
     log "Failed to download keynote_dual_canvas.lua from $MODULE_URL"
+    exit 1
+  fi
+
+  log "Downloading LaunchAgent template from repository..."
+  curl -fsSL "$LAUNCH_AGENT_URL" -o "$LAUNCH_AGENT_TEMPLATE_FILE"
+  if [ ! -s "$LAUNCH_AGENT_TEMPLATE_FILE" ]; then
+    log "Failed to download LaunchAgent template from $LAUNCH_AGENT_URL"
     exit 1
   fi
 }
@@ -131,11 +142,30 @@ ensure_hammerspoon() {
 }
 
 install_config() {
-  mkdir -p "$TARGET_DIR"
+  mkdir -p "$TARGET_DIR" "${HOME}/Library/LaunchAgents" "${HOME}/Library/Logs"
   cp "$INIT_FILE" "$TARGET_DIR/init.lua"
   cp "$MODULE_FILE" "$TARGET_DIR/keynote_dual_canvas.lua"
+
+  local app_path="$USER_HAMMERSPOON_APP"
+  if [ ! -d "$app_path" ]; then
+    app_path="$SYSTEM_HAMMERSPOON_APP"
+  fi
+
+  sed \
+    -e "s|__HOME__|${HOME}|g" \
+    -e "s|__HAMMERSPOON_APP__|${app_path}|g" \
+    "$LAUNCH_AGENT_TEMPLATE_FILE" > "$LAUNCH_AGENT_TARGET"
+
   log "Config installed to $TARGET_DIR/init.lua"
   log "Module installed to $TARGET_DIR/keynote_dual_canvas.lua"
+  log "LaunchAgent installed to $LAUNCH_AGENT_TARGET"
+}
+
+install_launch_agent() {
+  launchctl bootout "gui/$(id -u)" "$LAUNCH_AGENT_TARGET" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$(id -u)" "$LAUNCH_AGENT_TARGET"
+  launchctl enable "gui/$(id -u)/local.hammerspoon.autostart"
+  launchctl kickstart -k "gui/$(id -u)/local.hammerspoon.autostart"
 }
 
 launch_hammerspoon() {
@@ -181,9 +211,11 @@ main() {
   fi
 
   install_config
+  install_launch_agent
   restart_hammerspoon
 
   log "Hotkey installed: Ctrl+Option+Command+K"
+  log "Autostart installed: local.hammerspoon.autostart"
   log "Important: allow Accessibility, Automation (Keynote), and Screen Recording for Hammerspoon if prompted."
   log "If the presenter window stops at 1920x1050 instead of 1920x1080, enable auto-hide for the menu bar on the notes display."
   log "Installation complete."

@@ -20,6 +20,8 @@ When the hotkey runs, it:
 5. Seats the slide window across the full `5760x2160` stitched canvas.
 6. Seats the presenter window on the separate notes display.
 
+It can also expose a small HTTP trigger for remote control from another machine on the AV VLAN.
+
 The module supports both Keynote menu layouts:
 
 - `Play > Play in Window`
@@ -31,6 +33,7 @@ The module supports both Keynote menu layouts:
 - `keynote_dual_canvas.lua`: reusable window-placement module
 - `install.sh`: one-line bootstrap entrypoint
 - `scripts/bootstrap.sh`: installer that downloads the config and module
+- `launchagents/local.hammerspoon.autostart.plist`: LaunchAgent template for reboot-safe autostart
 - `INSTALL_ON_ANOTHER_MAC.md`: manual setup checklist
 - `init.lua.export.example`: alternate config example for handoff bundles
 - `export_keynote_dual_canvas.sh`: creates a zip bundle for offline transfer
@@ -48,6 +51,7 @@ The bootstrap will:
 - install a user-local Homebrew copy if `brew` is missing
 - install Hammerspoon into `~/Applications`
 - copy `init.lua` and `keynote_dual_canvas.lua` into `~/.hammerspoon`
+- install a LaunchAgent so Hammerspoon starts automatically after login
 - launch or restart Hammerspoon
 
 ## Manual Install
@@ -59,6 +63,44 @@ The bootstrap will:
 5. Reload Hammerspoon config.
 6. Press `ctrl` + `option` + `cmd` + `k`.
 
+## Autostart After Reboot
+
+The supported autostart path is a per-user LaunchAgent:
+
+- `~/Library/LaunchAgents/local.hammerspoon.autostart.plist`
+
+That LaunchAgent launches Hammerspoon automatically after login.
+
+The module also retries HTTP server startup every 5 seconds if the AV VLAN IP is not ready when Hammerspoon first launches.
+
+## Remote Trigger
+
+The default `init.lua` also enables an HTTP trigger on:
+
+- `http://10.2.130.108:8765`
+
+Available endpoints:
+
+- `GET /keynote/health`
+- `GET /keynote/run`
+- `GET /keynote/stop`
+
+Example:
+
+```bash
+curl http://10.2.130.108:8765/keynote/health
+curl http://10.2.130.108:8765/keynote/run
+```
+
+The bind address is set to the AV control VLAN IP in `init.lua`, so the trigger does not need to listen on every interface.
+The module will retry binding after login if that interface appears slightly later than Hammerspoon.
+
+If you want a shared-secret token, set `http.token` in `init.lua` and call:
+
+```bash
+curl "http://10.2.130.108:8765/keynote/run?token=YOUR_SECRET"
+```
+
 ## Required macOS Permissions
 
 Grant these to Hammerspoon:
@@ -68,6 +110,7 @@ Grant these to Hammerspoon:
 - Screen Recording
 
 Without Accessibility, the hotkey bind is intentionally skipped so Hammerspoon can still start cleanly.
+If macOS asks whether Hammerspoon can accept incoming network connections, allow it.
 
 ## Machine-Specific Configuration
 
@@ -81,6 +124,10 @@ If another machine uses different names, edit:
 
 - `playScreenNames`
 - `notesScreenName`
+
+If another machine uses a different AV VLAN IP, edit:
+
+- `http.bindAddress`
 
 You can also set a fixed deck path by uncommenting:
 

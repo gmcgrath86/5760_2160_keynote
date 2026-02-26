@@ -16,9 +16,23 @@ if hs.accessibilityState and hs.accessibilityState() then
     },
     notesScreenName = "SwitchResX4 - Desktop (3)",
 
+    http = {
+      enabled = true,
+      bindAddress = "10.2.130.108",
+      port = 8765,
+      token = nil,
+    },
+
     -- Optional: uncomment to always reopen a specific deck before refresh.
     -- deckPath = "/absolute/path/to/your/deck.key",
     -- openDeckOnHotkey = true,
+    -- If you want auth on the AV VLAN, set a shared token:
+    -- http = {
+    --   enabled = true,
+    --   bindAddress = "10.2.130.108",
+    --   port = 8765,
+    --   token = "replace-with-a-secret",
+    -- },
   })
 else
   hs.printf("Accessibility permission not granted yet; skipping Keynote hotkey bind. Reload after granting access.")
